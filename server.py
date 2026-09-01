@@ -1485,9 +1485,40 @@ async def main():
 
     # Prepare dynamic instructions for the MCP client based on model mode
     if IS_AUTO_MODE:
+        # Embed the roster in the handshake instead of telling every client to
+        # call `listmodels` first. That instruction made listmodels ~15% of all
+        # tool calls (347 of 2350 in this deployment's history) purely to
+        # re-learn a roster that only changes when the catalog is edited -- and
+        # the server already has it in memory at this point.
+        try:
+            from providers.registry import ModelProviderRegistry
+
+            # Canonical names only: aliases would triple the list without
+            # helping the caller choose. Each is annotated with its first
+            # description sentence so the client can pick without a round trip.
+            seen: dict[str, str] = {}
+            for name in ModelProviderRegistry.get_available_models():
+                provider = ModelProviderRegistry.get_provider_for_model(name)
+                if provider is None:
+                    continue
+                try:
+                    caps = provider.get_capabilities(name)
+                except Exception:
+                    continue
+                if caps is None or caps.model_name in seen:
+                    continue
+                summary = (getattr(caps, "description", "") or "").split(" - ")[-1]
+                summary = summary.split(".")[0].strip()[:80]
+                seen[caps.model_name] = summary
+            roster = "; ".join(f"{n} ({d})" if d else n for n, d in sorted(seen.items()))
+        except Exception:  # never block startup on a roster summary
+            roster = ""
+
         handshake_instructions = (
             "When the user names a specific model (e.g. 'use chat with gpt5'), send that exact model in the tool call. "
-            "When no model is mentioned, first use the `listmodels` tool from PAL to obtain available models to choose the best one from."
+            "When no model is mentioned, choose from the models listed here"
+            + (f": {roster}. " if roster else " (call `listmodels` if this list is empty). ")
+            + "This roster is current as of server start; call `listmodels` only if a model name is rejected."
         )
     else:
         handshake_instructions = (
