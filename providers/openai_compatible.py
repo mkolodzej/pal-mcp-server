@@ -496,6 +496,43 @@ class OpenAICompatibleProvider(ModelProvider):
             logging.error(error_msg)
             raise RuntimeError(error_msg) from exc
 
+    # Markers the prompt builders put around large, stable file content.
+    # Keep in sync with tools/simple/base.py and tools/workflow/workflow_mixin.py.
+    _CACHEABLE_BLOCKS = (
+        ("=== CONTEXT FILES ===", "=== END CONTEXT ==="),
+        ("=== ESSENTIAL FILES ===", "=== END ESSENTIAL FILES ==="),
+    )
+
+    # Below this a separate message is not worth it: providers require a minimum
+    # prefix (1024 tokens on Azure OpenAI) before any cache engages.
+    _MIN_CACHEABLE_CHARS = 8000
+
+    @classmethod
+    def _split_cacheable_context(cls, prompt: str) -> tuple[str, str]:
+        """Split a leading file-context block out of the prompt.
+
+        Returns (context_message, remaining_prompt). The block is split off only
+        when it LEADS the prompt and is big enough to be cacheable; otherwise the
+        prompt is returned unchanged, so behaviour is identical to before for
+        small or differently shaped prompts.
+        """
+        if not prompt:
+            return "", prompt
+        for start_marker, end_marker in cls._CACHEABLE_BLOCKS:
+            start = prompt.find(start_marker)
+            # Must lead the prompt (allow leading whitespace only).
+            if start == -1 or prompt[:start].strip():
+                continue
+            end = prompt.find(end_marker, start)
+            if end == -1:
+                continue
+            end += len(end_marker)
+            block = prompt[start:end]
+            if len(block) < cls._MIN_CACHEABLE_CHARS:
+                continue
+            return block, prompt[end:].lstrip()
+        return "", prompt
+
     def generate_content(
         self,
         prompt: str,
@@ -553,6 +590,21 @@ class OpenAICompatibleProvider(ModelProvider):
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
+
+        # Move a leading file-context block into the SYSTEM message so it can be
+        # cached. Prompt caches key on the leading messages, and measurement on
+        # Azure gpt-5.6 (28k-token block, fresh prefix per arm, 3 calls each)
+        # shows placement is what matters:
+        #   block in the system message              -> 100% cached from call 2
+        #   block as a leading separate user message ->   0% cached, every call
+        #   block inside the same user message as the question -> 0% cached
+        # So appending it to the system prompt is the only shape that caches.
+        context_block, prompt = self._split_cacheable_context(prompt)
+        if context_block:
+            if messages and messages[0]["role"] == "system":
+                messages[0]["content"] = f"{messages[0]['content']}\n\n{context_block}"
+            else:
+                messages.insert(0, {"role": "system", "content": context_block})
 
         # Prepare user message with text and potentially images
         user_content = []

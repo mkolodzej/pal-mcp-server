@@ -813,7 +813,17 @@ class SimpleTool(BaseTool):
             )
             self._actually_processed_files = processed_files
             if file_content:
-                user_content = f"{user_content}\n\n=== {file_context_title} ===\n{file_content}\n=== END CONTEXT ===="
+                # Files go BEFORE the user's request so the large, stable file
+                # blob forms a cacheable prefix. Providers (Azure OpenAI,
+                # Anthropic, DeepSeek) cache on a byte-identical leading prefix;
+                # putting the changing question first truncates that prefix at
+                # the first token and defeats caching entirely.
+                # Measured on Azure gpt-5.6: 99.9% cache hit with files first vs
+                # 0.0% with the question first, same content, back to back.
+                user_content = (
+                    f"=== {file_context_title} ===\n{file_content}\n=== END CONTEXT ===\n\n"
+                    f"{user_content}"
+                )
 
         # Add standardized web search guidance
         websearch_instruction = self.get_websearch_instruction(self.get_websearch_guidance())

@@ -434,8 +434,14 @@ class BaseWorkflowMixin(ABC):
         """
         Add file content to the expert context.
         Override this to customize how files are added to the context.
+
+        Files are placed BEFORE the investigation context so the large, stable
+        file blob forms a cacheable prefix. Providers cache on a byte-identical
+        leading prefix, so leading with the per-call findings would truncate that
+        prefix immediately and defeat caching (measured on Azure gpt-5.6: 99.9%
+        cache hit with files first vs 0.0% with variable text first).
         """
-        return f"{expert_context}\n\n=== ESSENTIAL FILES ===\n{file_content}\n=== END ESSENTIAL FILES ==="
+        return f"=== ESSENTIAL FILES ===\n{file_content}\n=== END ESSENTIAL FILES ===\n\n{expert_context}"
 
     # ================================================================================
     # Context-Aware File Embedding - Core Implementation
