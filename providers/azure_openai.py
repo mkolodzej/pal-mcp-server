@@ -340,3 +340,47 @@ class AzureOpenAIProvider(OpenAICompatibleProvider):
                 return models
 
         return super()._parse_allowed_models()
+
+    def get_preferred_model(self, category: "ToolModelCategory", allowed_models: list[str]) -> Optional[str]:
+        """Pick the best Azure deployment for a tool category.
+
+        Without this, the base class returns None and
+        ``ModelProviderRegistry.get_preferred_fallback_model()`` skips Azure
+        entirely, no matter where AZURE sits in PROVIDER_PRIORITY_ORDER or how
+        highly its deployments score. Gemini/OpenAI/xAI all implement this; the
+        omission meant Azure could never win a fallback.
+
+        The roster is a small curated set of deployments rather than a fixed
+        vendor line-up, so rank by declared capability instead of hardcoding
+        model names -- that keeps working when deployments are renamed.
+        """
+        if not allowed_models:
+            return None
+
+        from tools.models import ToolModelCategory
+
+        scored: list[tuple[int, int, str]] = []
+        seen: set[str] = set()
+        for name in allowed_models:
+            try:
+                caps = self.get_capabilities(name)
+            except Exception:
+                continue
+            canonical = caps.model_name
+            if canonical in seen:
+                continue
+            seen.add(canonical)
+            rank = caps.get_effective_capability_rank()
+            if category == ToolModelCategory.FAST_RESPONSE:
+                # Cheapest/fastest first: invert the ranking.
+                scored.append((-rank, 0, canonical))
+            elif category == ToolModelCategory.EXTENDED_REASONING:
+                # Prefer models that actually support extended thinking.
+                scored.append((rank, 1 if caps.supports_extended_thinking else 0, canonical))
+            else:
+                scored.append((rank, 0, canonical))
+
+        if not scored:
+            return None
+        scored.sort(key=lambda item: (-item[0], -item[1], item[2]))
+        return scored[0][2]

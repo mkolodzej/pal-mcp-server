@@ -35,10 +35,16 @@ class ModelProviderRegistry:
 
     # Provider priority order for model selection
     # Native APIs first, then custom endpoints, then catch-all providers
+    # Order matters: get_preferred_fallback_model() asks providers in this order
+    # and takes the FIRST one that offers a model, so a lower-priority provider
+    # is never consulted even when its models rank higher. AZURE is first here
+    # because this deployment's Azure capacity is a monthly credit that expires
+    # unused, making it strictly cheaper than any direct-API provider. Restore
+    # the upstream order (GOOGLE first) if that stops being true.
     PROVIDER_PRIORITY_ORDER = [
+        ProviderType.AZURE,  # Azure-hosted deployments (credit-funded; use first)
         ProviderType.GOOGLE,  # Direct Gemini access
         ProviderType.OPENAI,  # Direct OpenAI access
-        ProviderType.AZURE,  # Azure-hosted OpenAI deployments
         ProviderType.XAI,  # Direct X.AI GROK access
         ProviderType.DIAL,  # DIAL unified API access
         ProviderType.CUSTOM,  # Local/self-hosted models
