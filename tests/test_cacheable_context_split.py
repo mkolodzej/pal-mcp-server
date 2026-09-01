@@ -1,45 +1,68 @@
-#!/usr/bin/env python3
-"""Edge-case tests for _split_cacheable_context, run in the installed PAL env."""
-import sys
+"""Tests for OpenAICompatibleProvider._split_cacheable_context.
 
-sys.path.insert(0, "C:/source/pal-mcp-server")
+The splitter hoists a large, leading, delimited file-context block out of the
+prompt so it can be placed in the system message, where providers will cache it.
+These cases pin the conservative behaviour: anything that is not a big leading
+terminated block must pass through untouched, so existing prompts are unaffected.
+"""
 
-from providers.openai_compatible import OpenAICompatibleProvider as P  # noqa: E402
+import pytest
+
+from providers.openai_compatible import OpenAICompatibleProvider as Provider
 
 BIG = "X" * 20000
-fails = 0
 
 
-def check(label, cond):
-    global fails
-    print(f"  {'PASS' if cond else 'FAIL'}  {label}")
-    if not cond:
-        fails += 1
+def test_leading_context_block_is_split_off():
+    ctx, rest = Provider._split_cacheable_context(
+        f"=== CONTEXT FILES ===\n{BIG}\n=== END CONTEXT ===\n\nMy question?"
+    )
+    assert ctx.startswith("=== CONTEXT FILES ===")
+    assert BIG in ctx
+    assert rest == "My question?"
 
 
-ctx, rest = P._split_cacheable_context(
-    f"=== CONTEXT FILES ===\n{BIG}\n=== END CONTEXT ===\n\nMy question?")
-check("leading big block splits", ctx.startswith("=== CONTEXT FILES ===") and len(ctx) > 19000)
-check("remainder is just the question", rest == "My question?")
+def test_workflow_marker_is_also_recognised():
+    ctx, rest = Provider._split_cacheable_context(
+        f"=== ESSENTIAL FILES ===\n{BIG}\n=== END ESSENTIAL FILES ===\n\nFindings here"
+    )
+    assert ctx.startswith("=== ESSENTIAL FILES ===")
+    assert rest == "Findings here"
 
-ctx2, rest2 = P._split_cacheable_context(
-    f"=== ESSENTIAL FILES ===\n{BIG}\n=== END ESSENTIAL FILES ===\n\nFindings here")
-check("workflow marker also splits", ctx2.startswith("=== ESSENTIAL FILES ===") and rest2 == "Findings here")
 
-ctx3, rest3 = P._split_cacheable_context(f"Question first\n\n=== CONTEXT FILES ===\n{BIG}\n=== END CONTEXT ===")
-check("block not leading -> no split", ctx3 == "")
+def test_block_must_lead_the_prompt():
+    """A block behind variable text cannot form a cacheable prefix."""
+    ctx, rest = Provider._split_cacheable_context(
+        f"Question first\n\n=== CONTEXT FILES ===\n{BIG}\n=== END CONTEXT ==="
+    )
+    assert ctx == ""
+    assert rest.startswith("Question first")
 
-ctx4, _ = P._split_cacheable_context("=== CONTEXT FILES ===\nsmall\n=== END CONTEXT ===\n\nQ")
-check("below size threshold -> no split", ctx4 == "")
 
-ctx5, rest5 = P._split_cacheable_context("plain prompt, no markers")
-check("no markers -> unchanged", ctx5 == "" and rest5 == "plain prompt, no markers")
+def test_block_below_size_floor_is_left_alone():
+    """Under the provider minimum, a separate message buys nothing."""
+    ctx, _ = Provider._split_cacheable_context(
+        "=== CONTEXT FILES ===\nsmall\n=== END CONTEXT ===\n\nQ"
+    )
+    assert ctx == ""
 
-ctx6, rest6 = P._split_cacheable_context("")
-check("empty prompt safe", ctx6 == "" and rest6 == "")
 
-ctx7, rest7 = P._split_cacheable_context(f"=== CONTEXT FILES ===\n{BIG} (unterminated)")
-check("missing end marker -> no split", ctx7 == "")
+def test_prompt_without_markers_is_unchanged():
+    ctx, rest = Provider._split_cacheable_context("plain prompt, no markers")
+    assert ctx == ""
+    assert rest == "plain prompt, no markers"
 
-print(f"\n{'ALL PASS' if not fails else f'{fails} FAILURE(S)'}")
-sys.exit(1 if fails else 0)
+
+def test_empty_prompt_is_safe():
+    assert Provider._split_cacheable_context("") == ("", "")
+
+
+def test_unterminated_block_is_left_alone():
+    ctx, _ = Provider._split_cacheable_context(f"=== CONTEXT FILES ===\n{BIG} (unterminated)")
+    assert ctx == ""
+
+
+@pytest.mark.parametrize("prompt", ["", "short", "=== CONTEXT FILES ==="])
+def test_never_raises_on_degenerate_input(prompt):
+    ctx, rest = Provider._split_cacheable_context(prompt)
+    assert isinstance(ctx, str) and isinstance(rest, str)
