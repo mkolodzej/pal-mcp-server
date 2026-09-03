@@ -769,6 +769,30 @@ class OpenAICompatibleProvider(ModelProvider):
             usage["output_tokens"] = getattr(response.usage, "completion_tokens", 0) or 0
             usage["total_tokens"] = getattr(response.usage, "total_tokens", 0) or 0
 
+            # Prompt-cache accounting. Azure/OpenAI report cache reads as
+            # prompt_tokens_details.cached_tokens; gpt-5.6 deployments also
+            # report the billable cache write as cache_write_tokens. Surfacing
+            # both is the only way to see the cache hit rate without waiting a
+            # day for Cost Management.
+            details = getattr(response.usage, "prompt_tokens_details", None)
+            cached = getattr(details, "cached_tokens", 0) or 0
+            written = getattr(details, "cache_write_tokens", None)
+            if written is None and isinstance(details, dict):
+                cached = details.get("cached_tokens", 0) or 0
+                written = details.get("cache_write_tokens")
+            usage["cached_tokens"] = cached
+            usage["cache_write_tokens"] = written or 0
+            if usage["input_tokens"]:
+                logging.info(
+                    "PROMPT_CACHE model=%s input=%d cached=%d (%.1f%%) cache_write=%d output=%d",
+                    getattr(response, "model", "?"),
+                    usage["input_tokens"],
+                    cached,
+                    100.0 * cached / usage["input_tokens"],
+                    usage["cache_write_tokens"],
+                    usage["output_tokens"],
+                )
+
         return usage
 
     def count_tokens(self, text: str, model_name: str) -> int:
