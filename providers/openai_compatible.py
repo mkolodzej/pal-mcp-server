@@ -647,6 +647,12 @@ class OpenAICompatibleProvider(ModelProvider):
         if supports_sampling:
             completion_params["temperature"] = effective_temperature
 
+        # Reasoning models: send the catalog's default_reasoning_effort on the chat
+        # completions path too (upstream only did so on the /responses path, so the
+        # field was silently ignored for Azure gpt-5.x deployments).
+        if capabilities and capabilities.default_reasoning_effort and not supports_sampling:
+            completion_params["reasoning_effort"] = capabilities.default_reasoning_effort
+
         # Add max tokens if specified and model supports it
         # O3/O4 models that don't support temperature also don't support max_tokens
         if max_output_tokens and supports_sampling:
@@ -796,9 +802,10 @@ class OpenAICompatibleProvider(ModelProvider):
         """Read one optional usage-detail field from an SDK object or a dict-shaped response."""
         if details is None:
             return 0
-        if isinstance(details, dict):
-            return details.get(name, 0) or 0
-        return getattr(details, name, 0) or 0
+        value = details.get(name) if isinstance(details, dict) else getattr(details, name, None)
+        # Only trust real numbers: SDK objects, dicts and test doubles can all hand back
+        # None or a placeholder object for a field the response did not carry.
+        return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
     def count_tokens(self, text: str, model_name: str) -> int:
         """Count tokens using OpenAI-compatible tokenizer tables when available."""

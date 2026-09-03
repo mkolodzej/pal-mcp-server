@@ -58,3 +58,17 @@ def test_cache_fields_default_to_zero_without_details():
 
 def test_no_usage_returns_empty():
     assert _extract(SimpleNamespace()) == {}
+
+
+def test_mock_placeholder_details_do_not_break_logging():
+    """Upstream tests hand _extract_usage a Mock() usage; unset fields must read as 0, not Mock."""
+    from unittest.mock import Mock
+
+    resp = Mock()
+    resp.usage = Mock()
+    resp.usage.prompt_tokens = 100
+    resp.usage.completion_tokens = 50
+    resp.usage.total_tokens = 150
+    usage = _extract(resp)
+    assert usage["cached_tokens"] == 0
+    assert usage["cache_write_tokens"] == 0
