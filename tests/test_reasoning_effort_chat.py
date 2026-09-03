@@ -52,7 +52,7 @@ def _drive(provider, caps, *, prompt="hi", system_prompt=None, max_output_tokens
 
 def _azure():
     p = AzureOpenAIProvider(api_key="k", azure_endpoint="https://x.openai.azure.com")
-    p._deployment_map = {"sol": "sol", "terra": "terra", "luna": "luna", "oss": "oss"}
+    p._deployment_map = {"sol": "sol", "terra": "terra", "luna": "luna", "sampling": "sampling"}
     return p
 
 
@@ -68,7 +68,7 @@ def test_reasoning_model_without_declared_effort_sends_none():
 
 
 def test_sampling_model_keeps_sampling_and_sends_no_effort():
-    kw = _drive(_azure(), _caps(ProviderType.AZURE, "oss", supports_temperature=True))
+    kw = _drive(_azure(), _caps(ProviderType.AZURE, "sampling", supports_temperature=True))
     assert "reasoning_effort" not in kw
     assert kw["temperature"] == 0.2 and kw["max_tokens"] == 10
 
