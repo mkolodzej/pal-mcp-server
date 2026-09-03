@@ -430,6 +430,20 @@ def get_thread_chain(thread_id: str, max_depth: int = 20) -> list[ThreadContext]
     return chain
 
 
+def _render_order(context: ThreadContext, included: list[str]) -> list[str]:
+    """Order `included` files as the first turn rendered them: turns oldest-first, files sorted
+    within each turn, each file once at its OLDEST mention. Byte-stable across the thread."""
+    wanted = set(included)
+    out: list[str] = []
+    seen: set[str] = set()
+    for turn in context.turns:
+        for file_path in sorted(turn.files or []):
+            if file_path in wanted and file_path not in seen:
+                seen.add(file_path)
+                out.append(file_path)
+    return out
+
+
 def get_conversation_file_list(context: ThreadContext) -> list[str]:
     """
     Extract all unique files from conversation turns with newest-first prioritization.
@@ -844,8 +858,11 @@ def build_conversation_history(context: ThreadContext, model_context=None, read_
                 total_tokens = 0
                 files_included = 0
 
-                # Oldest-first so a file added on a later turn APPENDS to the cached prefix.
-                for file_path in reversed(files_to_include):
+                # Render in FIRST-TURN order (turns oldest-first, files sorted within a turn, as
+                # utils.file_utils.expand_paths emits them) so the FILE spans are byte-identical
+                # to the first turn's and a later-added file APPENDS. Newest-first (all_files)
+                # is used only to decide what fits the budget.
+                for file_path in _render_order(context, files_to_include):
                     try:
                         logger.debug(f"[FILES] Processing file {file_path}")
                         # Render exactly as the tools do on a first turn (they pass
@@ -895,7 +912,7 @@ def build_conversation_history(context: ThreadContext, model_context=None, read_
                     logger.debug(f"[FILES] No accessible files found from {len(files_to_include)} planned files")
             else:
                 # Fallback to original read_files function
-                files_content = read_files_func(list(reversed(all_files)))
+                files_content = read_files_func(_render_order(context, all_files))
                 if files_content:
                     # Add token validation for the combined file content
                     from utils.token_utils import check_token_limit

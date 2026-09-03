@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from tools.models import ToolModelCategory
+
 import logging
 from dataclasses import asdict, replace
 
@@ -341,7 +346,7 @@ class AzureOpenAIProvider(OpenAICompatibleProvider):
 
         return super()._parse_allowed_models()
 
-    def get_preferred_model(self, category: "ToolModelCategory", allowed_models: list[str]) -> Optional[str]:
+    def get_preferred_model(self, category: ToolModelCategory, allowed_models: list[str]) -> str | None:
         """Pick the best Azure deployment for a tool category.
 
         Without this, the base class returns None and

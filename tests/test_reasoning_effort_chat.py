@@ -98,7 +98,10 @@ def test_context_block_is_hoisted_into_system_message_with_frame():
 
 
 def test_no_hoist_for_model_without_system_prompt_support():
-    prompt = f"=== CONTEXT FILES ===\n{BIG}\n=== END CONTEXT ===\n\nQuestion?"
+    prompt = (
+        "=== CONTEXT FILES ===\n--- BEGIN FILE: C:/a.py (Last modified: 2026-09-03 00:00:00 UTC) ---\n"
+        f"{BIG}\n--- END FILE: C:/a.py ---\n=== END CONTEXT ===\n\nQuestion?"
+    )
     kw = _drive(
         _azure(),
         _caps(ProviderType.AZURE, "sol", supports_temperature=False, supports_system_prompts=False),
@@ -107,3 +110,16 @@ def test_no_hoist_for_model_without_system_prompt_support():
     msgs = kw["messages"]
     assert [m["role"] for m in msgs] == ["user"]
     assert msgs[0]["content"] == prompt
+
+
+def test_custom_provider_does_not_hoist_file_spans():
+    p = CustomProvider(api_key="k", base_url="http://localhost:11434/v1")
+    prompt = (
+        "=== CONTEXT FILES ===\n--- BEGIN FILE: C:/a.py (Last modified: 2026-09-03 00:00:00 UTC) ---\n"
+        f"{BIG}\n--- END FILE: C:/a.py ---\n=== END CONTEXT ===\n\nQuestion?"
+    )
+    kw = _drive(p, _caps(ProviderType.CUSTOM, "local", supports_temperature=True), prompt=prompt, system_prompt="S")
+    msgs = kw["messages"]
+    assert [m["role"] for m in msgs] == ["system", "user"]
+    assert msgs[0]["content"] == "S"
+    assert BIG in msgs[-1]["content"]

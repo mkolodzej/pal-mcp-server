@@ -624,8 +624,18 @@ class OpenAICompatibleProvider(ModelProvider):
         # Hoisting moves file content from user- to system-level, so it is framed as
         # data (static text, stays cacheable) and only done for models that declare
         # system-prompt support; anything else keeps the original prompt shape.
-        context_block, remaining_prompt = self._split_cacheable_context(prompt)
-        if context_block and capabilities is not None and capabilities.supports_system_prompts:
+        # Scoped to the providers/endpoints where the system-message cache shape was measured
+        # (Azure OpenAI and OpenAI chat completions). Custom/OpenRouter inherit this class but
+        # serve arbitrary models, and the Responses path rewrites system messages as user
+        # messages, so the hoist would change role semantics there for no cache benefit.
+        hoist_ok = (
+            self.get_provider_type() in (ProviderType.AZURE, ProviderType.OPENAI)
+            and capabilities is not None
+            and capabilities.supports_system_prompts
+            and not getattr(capabilities, "use_openai_response_api", False)
+        )
+        context_block, remaining_prompt = self._split_cacheable_context(prompt) if hoist_ok else ("", prompt)
+        if context_block:
             prompt = remaining_prompt
             framed = f"{self._CONTEXT_FRAME}\n{context_block}"
             if messages and messages[0]["role"] == "system":

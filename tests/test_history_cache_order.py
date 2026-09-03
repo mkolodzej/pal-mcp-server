@@ -87,3 +87,22 @@ def test_tool_detects_prepended_history_marker():
     src = Path("tools/simple/base.py").read_text(encoding="utf-8")
     assert '"=== END CONVERSATION HISTORY ===" in field_value' in src
     assert "=== END CONVERSATION HISTORY ===" in h
+
+
+def test_two_files_render_in_first_turn_order_on_continuation():
+    """First turn renders expand_paths() order (sorted). The continuation must render the same
+    order, not newest-first-then-reversed, or the system message changes and the cache misses."""
+    with tempfile.TemporaryDirectory() as d:
+        a, b = Path(d, "a.py"), Path(d, "b.py")
+        a.write_text("A" * 6000, encoding="utf-8")
+        b.write_text("B" * 6000, encoding="utf-8")
+        ctx = ThreadContext(
+            thread_id="t1",
+            created_at="x",
+            last_updated_at="x",
+            tool_name="chat",
+            initial_context={},
+            turns=[ConversationTurn(role="user", content="q1", timestamp="x", files=[str(b), str(a)])],
+        )
+        h, _ = build_conversation_history(ctx, MC)
+        assert h.index(f"BEGIN FILE: {a}") < h.index(f"BEGIN FILE: {b}")  # sorted, like the first turn

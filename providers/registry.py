@@ -160,8 +160,9 @@ class ModelProviderRegistry:
     def get_provider_for_model(cls, model_name: str) -> Optional[ModelProvider]:
         """Get provider instance for a specific model name.
 
-        Provider priority order:
-        1. Native APIs (GOOGLE, OPENAI) - Most direct and efficient
+        Provider priority order (see PROVIDER_PRIORITY_ORDER; fork puts AZURE first because
+        this deployment's Azure capacity is an expiring monthly credit):
+        1. AZURE, then native APIs (GOOGLE, OPENAI, XAI, DIAL)
         2. CUSTOM - For local/private models with specific endpoints
         3. OPENROUTER - Catch-all for cloud models via unified API
 
