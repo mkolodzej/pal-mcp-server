@@ -1,75 +1,71 @@
-"""Tests for OpenAICompatibleProvider._split_cacheable_context.
+"""Tests for OpenAICompatibleProvider._split_cacheable_context (hoist v2).
 
-The splitter hoists a large, leading, delimited file-context block out of the
-prompt so it can be placed in the system message, where providers will cache it.
-These cases pin the conservative behaviour: anything that is not a big leading
-terminated block must pass through untouched, so existing prompts are unaffected.
+The provider lifts embedded FILE spans (and, on continued turns, the conversation-history
+block) into the system message so provider prompt caches see a byte-identical prefix across
+turns of one thread and across independent calls that attach the same files. These cases pin:
+identical output for the same file under different tool wrappers, path canonicalisation, the
+size floor, and that prompts with nothing to lift pass through untouched.
 """
 
 import pytest
 
 from providers.openai_compatible import OpenAICompatibleProvider as Provider
 
-BIG = "X" * 20000
+BODY = "X" * 20000
+MT = "2026-09-03 17:27:01 UTC"
 
 
-def test_leading_context_block_is_split_off():
-    ctx, rest = Provider._split_cacheable_context(f"=== CONTEXT FILES ===\n{BIG}\n=== END CONTEXT ===\n\nMy question?")
-    assert ctx.startswith("=== CONTEXT FILES ===")
-    assert BIG in ctx
-    assert rest == "My question?"
+def span(path, body=BODY):
+    return f"\n--- BEGIN FILE: {path} (Last modified: {MT}) ---\n{body}\n--- END FILE: {path} ---\n"
 
 
-def test_workflow_marker_is_also_recognised():
-    ctx, rest = Provider._split_cacheable_context(
-        f"=== ESSENTIAL FILES ===\n{BIG}\n=== END ESSENTIAL FILES ===\n\nFindings here"
+def test_first_turn_and_continued_turn_yield_identical_system_context():
+    win = "C:\\src\\a.md"
+    posix = "C:/src/a.md"
+    turn1 = f"=== USER REQUEST ===\n=== CONTEXT FILES ==={span(win)}=== END CONTEXT ===\n\nQuestion one?"
+    turn2 = (
+        "=== CONVERSATION HISTORY (CONTINUATION) ===\nThread: t\nTool: chat\n\n"
+        f"=== FILES REFERENCED IN THIS CONVERSATION ===\nRefer to these:\n{span(posix)}\n=== END REFERENCED FILES ===\n\n"
+        "Previous conversation turns:\n\n--- Turn 1 (Agent) ---\nQuestion one?\n\n--- Turn 2 (sol) ---\n42\n\n"
+        "=== END CONVERSATION HISTORY ===\n\nIMPORTANT: continue.\n\n=== NEW USER INPUT ===\nQuestion two?"
     )
-    assert ctx.startswith("=== ESSENTIAL FILES ===")
-    assert rest == "Findings here"
+    c1, r1 = Provider._split_cacheable_context(turn1)
+    c2, r2 = Provider._split_cacheable_context(turn2)
+    assert c1.startswith(f"--- BEGIN FILE: {posix}")  # canonical slashes on both
+    assert c2 == c1  # the system message must be byte-identical across the thread
+    assert "=== CONVERSATION HISTORY (CONTINUATION) ===" in r2  # history stays in the user message
+    assert BODY not in r1 and BODY not in r2
+    assert r1.startswith("=== USER REQUEST ===") and "Question one?" in r1
+    assert "Question two?" in r2
 
 
-def test_block_must_lead_the_prompt():
-    """A block behind variable text cannot form a cacheable prefix."""
-    ctx, rest = Provider._split_cacheable_context(
-        f"Question first\n\n=== CONTEXT FILES ===\n{BIG}\n=== END CONTEXT ==="
-    )
-    assert ctx == ""
-    assert rest.startswith("Question first")
+def test_multiple_files_keep_prompt_order():
+    p = f"=== CONTEXT FILES ==={span('C:/a.py', 'A' * 5000)}{span('C:/b.py', 'B' * 5000)}=== END CONTEXT ===\n\nQ"
+    ctx, _ = Provider._split_cacheable_context(p)
+    assert ctx.index("C:/a.py") < ctx.index("C:/b.py")
 
 
-def test_block_below_size_floor_is_left_alone():
-    """Under the provider minimum, a separate message buys nothing."""
-    ctx, _ = Provider._split_cacheable_context("=== CONTEXT FILES ===\nsmall\n=== END CONTEXT ===\n\nQ")
-    assert ctx == ""
+def test_below_size_floor_is_left_alone():
+    p = f"=== CONTEXT FILES ==={span('C:/a.py', 'small')}=== END CONTEXT ===\n\nQ"
+    assert Provider._split_cacheable_context(p) == ("", p)
 
 
-def test_prompt_without_markers_is_unchanged():
-    ctx, rest = Provider._split_cacheable_context("plain prompt, no markers")
-    assert ctx == ""
-    assert rest == "plain prompt, no markers"
+def test_prompt_without_files_or_history_is_unchanged():
+    p = "plain prompt, no markers"
+    assert Provider._split_cacheable_context(p) == ("", p)
 
 
-def test_empty_prompt_is_safe():
-    assert Provider._split_cacheable_context("") == ("", "")
+def test_quoted_end_marker_inside_a_file_does_not_end_the_span():
+    body = f"{BODY}\n    print('--- END FILE: C:/a.py ---')\n{BODY}"
+    p = f"=== CONTEXT FILES ==={span('C:/a.py', body)}=== END CONTEXT ===\n\nQ"
+    ctx, rest = Provider._split_cacheable_context(p)
+    # regex anchors the END marker to a line that is followed by newline/end; a quoted marker
+    # inside a print() is not at line start so the span runs to the real end marker
+    assert ctx.count("--- BEGIN FILE") == 1 and ctx.count(BODY) == 2
+    assert "=== END CONTEXT ===" in rest
 
 
-def test_unterminated_block_is_left_alone():
-    ctx, _ = Provider._split_cacheable_context(f"=== CONTEXT FILES ===\n{BIG} (unterminated)")
-    assert ctx == ""
-
-
-@pytest.mark.parametrize("prompt", ["", "short", "=== CONTEXT FILES ==="])
+@pytest.mark.parametrize("prompt", ["", "short", "--- BEGIN FILE: x (Last modified: y) ---"])
 def test_never_raises_on_degenerate_input(prompt):
     ctx, rest = Provider._split_cacheable_context(prompt)
     assert isinstance(ctx, str) and isinstance(rest, str)
-
-
-def test_quoted_end_marker_inside_a_file_does_not_end_the_block():
-    """A reviewed file may contain the marker as a string literal; only a full marker line counts."""
-    body = f'{BIG}\n    ("=== ESSENTIAL FILES ===", "=== END ESSENTIAL FILES ==="),\n{BIG}'
-    ctx, rest = Provider._split_cacheable_context(
-        f"=== ESSENTIAL FILES ===\n{body}\n=== END ESSENTIAL FILES ===\n\nFindings"
-    )
-    assert ctx.endswith("=== END ESSENTIAL FILES ===")
-    assert ctx.count(BIG) == 2
-    assert rest == "Findings"

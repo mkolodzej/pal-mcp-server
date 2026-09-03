@@ -194,7 +194,7 @@ class TestConversationMemory:
         assert "CONVERSATION HISTORY" in history
         assert f"Thread: {test_uuid}" in history
         assert "Tool: chat" in history
-        assert f"Turn 2/{MAX_CONVERSATION_TURNS}" in history
+        assert f"This is turn 3 of {MAX_CONVERSATION_TURNS}" in history  # 2 stored turns -> next is 3; lives in the trailer
 
         # Test speaker identification
         assert "--- Turn 1 (Agent) ---" in history
@@ -398,7 +398,7 @@ class TestConversationFlow:
             )
 
             history, tokens = build_conversation_history(context, model_context=None)
-            expected_turn_text = f"Turn {test_max}/{MAX_CONVERSATION_TURNS}"
+            expected_turn_text = f"This is turn {test_max + 1} of {MAX_CONVERSATION_TURNS}"
             assert expected_turn_text in history
 
     def test_follow_up_instructions_dynamic_behavior(self):

@@ -794,11 +794,15 @@ def build_conversation_history(context: ThreadContext, model_context=None, read_
     logger.debug(f"[HISTORY]   Max file tokens: {max_file_tokens:,}")
     logger.debug(f"[HISTORY]   Max history tokens: {max_history_tokens:,}")
 
+    # Cache-prefix discipline (fork, 2026-09-03): everything in this block must be a prefix of
+    # the same block on the NEXT turn, so provider prompt caches (which key on the leading bytes)
+    # read it back instead of re-writing it. Hence: a static header (no per-turn counter here;
+    # it lives in the trailer after the END marker), files rendered oldest-first so a newly
+    # added file appends rather than prepends, and turns in chronological order.
     history_parts = [
         "=== CONVERSATION HISTORY (CONTINUATION) ===",
         f"Thread: {context.thread_id}",
         f"Tool: {context.tool_name}",  # Original tool that started the conversation
-        f"Turn {total_turns}/{MAX_CONVERSATION_TURNS}",
         "You are continuing this conversation thread from where it left off.",
         "",
     ]
@@ -840,10 +844,14 @@ def build_conversation_history(context: ThreadContext, model_context=None, read_
                 total_tokens = 0
                 files_included = 0
 
-                for file_path in files_to_include:
+                # Oldest-first so a file added on a later turn APPENDS to the cached prefix.
+                for file_path in reversed(files_to_include):
                     try:
                         logger.debug(f"[FILES] Processing file {file_path}")
-                        formatted_content, content_tokens = read_file_content(file_path)
+                        # Render exactly as the tools do on a first turn (they pass
+                        # wants_line_numbers_by_default() == True), so the FILE span is
+                        # byte-identical across turns and the provider cache reads it back.
+                        formatted_content, content_tokens = read_file_content(file_path, include_line_numbers=True)
                         if formatted_content:
                             file_contents.append(formatted_content)
                             total_tokens += content_tokens
@@ -887,7 +895,7 @@ def build_conversation_history(context: ThreadContext, model_context=None, read_
                     logger.debug(f"[FILES] No accessible files found from {len(files_to_include)} planned files")
             else:
                 # Fallback to original read_files function
-                files_content = read_files_func(all_files)
+                files_content = read_files_func(list(reversed(all_files)))
                 if files_content:
                     # Add token validation for the combined file content
                     from utils.token_utils import check_token_limit
@@ -1006,7 +1014,7 @@ def build_conversation_history(context: ThreadContext, model_context=None, read_
             "conversation history. Instead, provide only new insights, additional analysis, or direct answers to",
             "the follow-up question / concerns / insights. Assume the user has read the prior conversation.",
             "",
-            f"This is turn {len(all_turns) + 1} of the conversation - use the conversation history above to provide a coherent continuation.",
+            f"This is turn {len(all_turns) + 1} of {MAX_CONVERSATION_TURNS} in the conversation - use the conversation history above to provide a coherent continuation.",
         ]
     )
 

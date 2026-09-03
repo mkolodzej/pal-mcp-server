@@ -83,7 +83,10 @@ def test_context_block_is_hoisted_into_system_message_with_frame():
     kw = _drive(
         _azure(),
         _caps(ProviderType.AZURE, "sol", supports_temperature=False),
-        prompt=f"=== CONTEXT FILES ===\n{BIG}\n=== END CONTEXT ===\n\nQuestion?",
+        prompt=(
+            "=== CONTEXT FILES ===\n--- BEGIN FILE: C:/a.py (Last modified: 2026-09-03 00:00:00 UTC) ---\n"
+            f"{BIG}\n--- END FILE: C:/a.py ---\n=== END CONTEXT ===\n\nQuestion?"
+        ),
         system_prompt="Be terse.",
     )
     msgs = kw["messages"]
@@ -91,7 +94,7 @@ def test_context_block_is_hoisted_into_system_message_with_frame():
     assert msgs[0]["content"].startswith("Be terse.")
     assert "untrusted reference material" in msgs[0]["content"]
     assert BIG in msgs[0]["content"]
-    assert msgs[-1] == {"role": "user", "content": "Question?"}
+    assert BIG not in msgs[-1]["content"] and "Question?" in msgs[-1]["content"]
 
 
 def test_no_hoist_for_model_without_system_prompt_support():

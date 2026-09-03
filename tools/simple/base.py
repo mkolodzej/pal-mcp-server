@@ -332,7 +332,10 @@ class SimpleTool(BaseTool):
             if continuation_id:
                 # Check if conversation history is already embedded
                 field_value = self.get_request_prompt(request)
-                if "=== CONVERSATION HISTORY ===" in field_value:
+                # The builder's closing marker (its opening marker reads "... (CONTINUATION) ===",
+                # which is why the upstream check for "=== CONVERSATION HISTORY ===" never matched
+                # and the tool re-added the turn and prepended history a second time).
+                if "=== END CONVERSATION HISTORY ===" in field_value:
                     # Use pre-embedded history
                     prompt = field_value
                     logger.debug(f"{self.get_name()}: Using pre-embedded conversation history")
@@ -820,10 +823,7 @@ class SimpleTool(BaseTool):
                 # the first token and defeats caching entirely.
                 # Measured on Azure gpt-5.6: 99.9% cache hit with files first vs
                 # 0.0% with the question first, same content, back to back.
-                user_content = (
-                    f"=== {file_context_title} ===\n{file_content}\n=== END CONTEXT ===\n\n"
-                    f"{user_content}"
-                )
+                user_content = f"=== {file_context_title} ===\n{file_content}\n=== END CONTEXT ===\n\n{user_content}"
 
         # Add standardized web search guidance
         websearch_instruction = self.get_websearch_instruction(self.get_websearch_guidance())

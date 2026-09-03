@@ -405,7 +405,6 @@ class TestLargePromptHandling:
             patch.object(tool, "get_model_provider") as mock_get_provider,
             patch("utils.model_context.ModelContext") as mock_model_context_class,
         ):
-
             mock_provider = create_mock_provider(model_name="gemini-2.5-flash", context_window=1_048_576)
             mock_provider.generate_content.return_value.content = "Success"
             mock_get_provider.return_value = mock_provider
@@ -620,14 +619,16 @@ class TestLargePromptHandling:
 
         # Mock huge conversation history (simulates many turns of conversation)
         # Calculate repetitions needed to exceed MCP_PROMPT_SIZE_LIMIT
-        base_text = "=== CONVERSATION HISTORY ===\n"
+        base_text = "=== CONVERSATION HISTORY (CONTINUATION) ===\n"
         repeat_text = "Previous message content\n"
         # Add buffer to ensure we exceed the limit
         target_size = MCP_PROMPT_SIZE_LIMIT + 1000
         available_space = target_size - len(base_text)
         repetitions_needed = (available_space // len(repeat_text)) + 1
 
-        huge_conversation_history = base_text + (repeat_text * repetitions_needed)
+        huge_conversation_history = (
+            base_text + (repeat_text * repetitions_needed) + "\n=== END CONVERSATION HISTORY ===\n"
+        )
 
         # Ensure the history exceeds MCP limits
         assert len(huge_conversation_history) > MCP_PROMPT_SIZE_LIMIT
@@ -677,7 +678,7 @@ class TestLargePromptHandling:
                     # Simulate the case where conversation history is already embedded in prompt
                     # by server.py before calling the tool
                     field_value = arguments.get("prompt", "")
-                    if "=== CONVERSATION HISTORY ===" in field_value:
+                    if "=== END CONVERSATION HISTORY ===" in field_value:
                         # Set the flag that history is embedded
                         self._has_embedded_history = True
 

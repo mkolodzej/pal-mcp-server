@@ -202,7 +202,9 @@ class TestConversationHistoryBuilding:
         # Verify file content is embedded
         assert "--- BEGIN FILE:" in history
         assert test_file in history
-        assert test_content in history
+        # rendered with line numbers (matches first-turn rendering so the cache prefix holds)
+        for line in test_content.splitlines():
+            assert line in history
         assert "--- END FILE:" in history
 
         # Verify turn content
