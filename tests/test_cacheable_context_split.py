@@ -69,3 +69,21 @@ def test_quoted_end_marker_inside_a_file_does_not_end_the_span():
 def test_never_raises_on_degenerate_input(prompt):
     ctx, rest = Provider._split_cacheable_context(prompt)
     assert isinstance(ctx, str) and isinstance(rest, str)
+
+
+def test_embedded_begin_marker_inside_a_file_stays_one_span():
+    """A file that quotes PAL's own marker format (docs, fixtures) must not be split at it."""
+    inner = "\n--- BEGIN FILE: C:/other.py (Last modified: 2026-01-01 00:00:00 UTC) ---\n"
+    body = f"{BODY}{inner}{BODY}"
+    p = f"=== CONTEXT FILES ==={span('C:/a.py', body)}=== END CONTEXT ===\n\nQ"
+    ctx, rest = Provider._split_cacheable_context(p)
+    assert ctx.count("--- BEGIN FILE: C:/a.py") == 1 and ctx.count(BODY) == 2
+    assert "--- BEGIN FILE: C:/other.py" in ctx  # the quoted marker travelled with the body
+    assert "--- END FILE" not in rest and "--- BEGIN FILE" not in rest
+
+
+def test_indented_or_quoted_end_marker_for_same_path_does_not_end_span():
+    body = f"{BODY}\n    --- END FILE: C:/a.py ---\n{BODY}"
+    p = f"=== CONTEXT FILES ==={span('C:/a.py', body)}=== END CONTEXT ===\n\nQ"
+    ctx, rest = Provider._split_cacheable_context(p)
+    assert ctx.count(BODY) == 2 and "--- END FILE" not in rest

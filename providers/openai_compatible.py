@@ -508,10 +508,14 @@ class OpenAICompatibleProvider(ModelProvider):
     # and the continued-turn CONVERSATION HISTORY wrapper) into the system message, and leaves the
     # conversation history in the user message, where it grows at the end.
     _FILE_SPAN = re.compile(
-        r"\n?--- BEGIN FILE: (?P<path>.+?) \(Last modified: (?P<mtime>[^)]+)\) ---\n"
+        # Both markers must occupy whole lines (re.M anchors), and the body runs lazily to the
+        # first END line for the SAME path. A file that itself contains a `--- BEGIN FILE:` or a
+        # differently-pathed END line therefore stays one span (measured 2026-09-03: the
+        # unanchored form split such a file in two and left a dangling END in the user message).
+        r"^--- BEGIN FILE: (?P<path>[^\n]+?) \(Last modified: (?P<mtime>[^)\n]+)\) ---$\n"
         r"(?P<body>.*?)"
-        r"\n--- END FILE: (?P=path) ---\n?",
-        re.S,
+        r"^--- END FILE: (?P=path) ---$\n?",
+        re.S | re.M,
     )
     # Below this a separate message is not worth it: Azure OpenAI needs a 1024-token prefix
     # before any cache engages (~4 chars/token).
