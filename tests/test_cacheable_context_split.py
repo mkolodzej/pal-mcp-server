@@ -14,9 +14,7 @@ BIG = "X" * 20000
 
 
 def test_leading_context_block_is_split_off():
-    ctx, rest = Provider._split_cacheable_context(
-        f"=== CONTEXT FILES ===\n{BIG}\n=== END CONTEXT ===\n\nMy question?"
-    )
+    ctx, rest = Provider._split_cacheable_context(f"=== CONTEXT FILES ===\n{BIG}\n=== END CONTEXT ===\n\nMy question?")
     assert ctx.startswith("=== CONTEXT FILES ===")
     assert BIG in ctx
     assert rest == "My question?"
@@ -41,9 +39,7 @@ def test_block_must_lead_the_prompt():
 
 def test_block_below_size_floor_is_left_alone():
     """Under the provider minimum, a separate message buys nothing."""
-    ctx, _ = Provider._split_cacheable_context(
-        "=== CONTEXT FILES ===\nsmall\n=== END CONTEXT ===\n\nQ"
-    )
+    ctx, _ = Provider._split_cacheable_context("=== CONTEXT FILES ===\nsmall\n=== END CONTEXT ===\n\nQ")
     assert ctx == ""
 
 
@@ -66,3 +62,14 @@ def test_unterminated_block_is_left_alone():
 def test_never_raises_on_degenerate_input(prompt):
     ctx, rest = Provider._split_cacheable_context(prompt)
     assert isinstance(ctx, str) and isinstance(rest, str)
+
+
+def test_quoted_end_marker_inside_a_file_does_not_end_the_block():
+    """A reviewed file may contain the marker as a string literal; only a full marker line counts."""
+    body = f'{BIG}\n    ("=== ESSENTIAL FILES ===", "=== END ESSENTIAL FILES ==="),\n{BIG}'
+    ctx, rest = Provider._split_cacheable_context(
+        f"=== ESSENTIAL FILES ===\n{body}\n=== END ESSENTIAL FILES ===\n\nFindings"
+    )
+    assert ctx.endswith("=== END ESSENTIAL FILES ===")
+    assert ctx.count(BIG) == 2
+    assert rest == "Findings"
