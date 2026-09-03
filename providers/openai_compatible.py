@@ -775,13 +775,9 @@ class OpenAICompatibleProvider(ModelProvider):
             # both is the only way to see the cache hit rate without waiting a
             # day for Cost Management.
             details = getattr(response.usage, "prompt_tokens_details", None)
-            cached = getattr(details, "cached_tokens", 0) or 0
-            written = getattr(details, "cache_write_tokens", None)
-            if written is None and isinstance(details, dict):
-                cached = details.get("cached_tokens", 0) or 0
-                written = details.get("cache_write_tokens")
+            cached = self._usage_detail(details, "cached_tokens")
             usage["cached_tokens"] = cached
-            usage["cache_write_tokens"] = written or 0
+            usage["cache_write_tokens"] = self._usage_detail(details, "cache_write_tokens")
             if usage["input_tokens"]:
                 logging.info(
                     "PROMPT_CACHE model=%s input=%d cached=%d (%.1f%%) cache_write=%d output=%d",
@@ -794,6 +790,15 @@ class OpenAICompatibleProvider(ModelProvider):
                 )
 
         return usage
+
+    @staticmethod
+    def _usage_detail(details, name: str) -> int:
+        """Read one optional usage-detail field from an SDK object or a dict-shaped response."""
+        if details is None:
+            return 0
+        if isinstance(details, dict):
+            return details.get(name, 0) or 0
+        return getattr(details, name, 0) or 0
 
     def count_tokens(self, text: str, model_name: str) -> int:
         """Count tokens using OpenAI-compatible tokenizer tables when available."""

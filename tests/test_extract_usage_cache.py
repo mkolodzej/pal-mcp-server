@@ -5,12 +5,21 @@ from types import SimpleNamespace
 from providers.openai_compatible import OpenAICompatibleProvider
 
 
+class _Provider(OpenAICompatibleProvider):
+    """Minimal concrete subclass: _extract_usage never touches provider state."""
+
+    def __init__(self):  # noqa: D401 - skip the network client setup entirely
+        pass
+
+    def get_provider_type(self):  # abstract in the base
+        return None
+
+
 def _extract(resp):
-    # _extract_usage never touches self; call it unbound so the abstract class need not be built.
-    return OpenAICompatibleProvider._extract_usage(None, resp)
+    return _Provider()._extract_usage(resp)
 
 
-def test_cache_fields_extracted_from_details():
+def test_cache_fields_extracted_from_sdk_object():
     resp = SimpleNamespace(
         model="sol",
         usage=SimpleNamespace(
@@ -24,6 +33,20 @@ def test_cache_fields_extracted_from_details():
     assert usage["cached_tokens"] == 900
     assert usage["cache_write_tokens"] == 100
     assert usage["input_tokens"] == 1000
+
+
+def test_cache_fields_extracted_from_dict_details():
+    resp = SimpleNamespace(
+        usage=SimpleNamespace(
+            prompt_tokens=10,
+            completion_tokens=1,
+            total_tokens=11,
+            prompt_tokens_details={"cached_tokens": 7, "cache_write_tokens": None},
+        )
+    )
+    usage = _extract(resp)
+    assert usage["cached_tokens"] == 7
+    assert usage["cache_write_tokens"] == 0
 
 
 def test_cache_fields_default_to_zero_without_details():
