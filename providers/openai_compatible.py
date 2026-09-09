@@ -673,6 +673,21 @@ class OpenAICompatibleProvider(ModelProvider):
             # Text + images, use content array format
             messages.append({"role": "user", "content": user_content})
 
+        # Long-context billing guard. Azure prices a request ENTIRELY at long-context
+        # rates once it crosses the threshold -- "prompts with more than 272,000 input
+        # tokens use long-context pricing for the full request, not only for tokens
+        # beyond the threshold" (learn.microsoft.com/azure/foundry/foundry-models/
+        # concepts/models-sold-directly-by-azure). So one token past the line re-prices
+        # every token: measured on gpt-5.6-sol, cache write goes 6.25 -> 18.75 $/M (3x)
+        # and output 30 -> 75 $/M (2.5x). A 273k-token call costs ~3x a 271k one.
+        #
+        # On 2026-09-08 eight such calls (278k-335k tokens) added $31.64 in uplift alone
+        # -- 30% of that month's entire bill from 8 requests. This refuses them instead.
+        # Default ceiling sits under the real threshold for headroom, since our estimate
+        # is approximate and the server-side count includes framing we do not model.
+        # Set PAL_LONG_CONTEXT_GUARD=0 to disable, or to another integer to retune.
+        self._check_long_context_guard(messages, resolved_model)
+
         # Prepare completion parameters
         # Always disable streaming for OpenRouter
         # MCP doesn't use streaming, and this avoids issues with O3 model access
@@ -843,6 +858,57 @@ class OpenAICompatibleProvider(ModelProvider):
                 )
 
         return usage
+
+    # Ceiling in INPUT TOKENS. Azure's documented long-context threshold for gpt-5.6
+    # is 272,000; this sits below it because our count is an estimate and the
+    # server-side count includes framing we do not model. Model-specific -- recheck
+    # when deployments move off the gpt-5.6 family.
+    LONG_CONTEXT_GUARD_DEFAULT = 260_000
+
+    def _check_long_context_guard(self, messages: list, resolved_model: str) -> None:
+        """Refuse a request whose size would trip long-context pricing.
+
+        Raises ValueError before any billable call is made. Only enforced for
+        providers where the threshold was measured (Azure/OpenAI); other backends
+        price differently and must not inherit this ceiling.
+        """
+        raw = get_env("PAL_LONG_CONTEXT_GUARD", str(self.LONG_CONTEXT_GUARD_DEFAULT))
+        try:
+            limit = int(raw)
+        except (TypeError, ValueError):
+            limit = self.LONG_CONTEXT_GUARD_DEFAULT
+        if limit <= 0:
+            return
+        if self.get_provider_type() not in (ProviderType.AZURE, ProviderType.OPENAI):
+            return
+
+        total = 0
+        for message in messages:
+            content = message.get("content")
+            if isinstance(content, str):
+                total += self.count_tokens(content, resolved_model)
+            elif isinstance(content, list):
+                # Vision/multimodal shape: only text parts are countable here.
+                for part in content:
+                    if isinstance(part, dict) and isinstance(part.get("text"), str):
+                        total += self.count_tokens(part["text"], resolved_model)
+
+        if total <= limit:
+            return
+
+        logging.warning(
+            "LONG_CONTEXT_GUARD blocked model=%s estimated_input=%d limit=%d",
+            resolved_model,
+            total,
+            limit,
+        )
+        raise ValueError(
+            f"Request is ~{total:,} input tokens, over the {limit:,} guard. Azure prices the "
+            f"ENTIRE request at long-context rates past 272,000 tokens (~3x for cache writes, "
+            f"2.5x for output), so this one call would cost roughly triple. Send file PATHS via "
+            f"relevant_files instead of pasted file text, or split the work across calls. "
+            f"Override with PAL_LONG_CONTEXT_GUARD (0 disables)."
+        )
 
     @staticmethod
     def _usage_detail(details, name: str) -> int:

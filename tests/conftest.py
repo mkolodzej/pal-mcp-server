@@ -32,6 +32,23 @@ env_config.reload_env({"PAL_MCP_FORCE_ENV_OVERRIDE": "false"})
 # This prevents all tests from failing due to missing model parameter
 os.environ["DEFAULT_MODEL"] = "gemini-2.5-flash"
 
+# Tests assert against the BUILT-IN model rosters, so a host that points PAL at
+# custom catalogs must not leak them in. On this machine HKCU sets
+# GEMINI_MODELS_CONFIG_PATH / AZURE_MODELS_CONFIG_PATH to ~/.config/pal-mcp/*.json,
+# and the process inherits them: 25 tests failed purely on roster drift (e.g.
+# 'flash' resolving to gemini-3.8-flash instead of the built-in gemini-2.5-flash).
+# Those were environment leakage, never real defects. Clearing them here keeps the
+# suite hermetic; a test that WANTS a custom catalog sets the var itself via
+# monkeypatch, which still works because this only clears the inherited value.
+for _catalog_var in (
+    "GEMINI_MODELS_CONFIG_PATH",
+    "AZURE_MODELS_CONFIG_PATH",
+    "OPENAI_MODELS_CONFIG_PATH",
+    "XAI_MODELS_CONFIG_PATH",
+    "CUSTOM_MODELS_CONFIG_PATH",
+):
+    os.environ.pop(_catalog_var, None)
+
 # Force reload of config module to pick up the env var
 import config  # noqa: E402
 
