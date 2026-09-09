@@ -283,7 +283,7 @@ class TestIntegrationScenarios:
         with patch("utils.file_utils.is_mcp_directory", side_effect=mock_is_mcp):
             files = expand_paths([str(user_project)])
 
-        file_paths = [str(f) for f in files]
+        file_paths = [Path(f).as_posix() for f in files]
 
         # User files should be included
         assert any("my-awesome-project/README.md" in p for p in file_paths)

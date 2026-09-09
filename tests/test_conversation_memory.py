@@ -194,7 +194,9 @@ class TestConversationMemory:
         assert "CONVERSATION HISTORY" in history
         assert f"Thread: {test_uuid}" in history
         assert "Tool: chat" in history
-        assert f"This is turn 3 of {MAX_CONVERSATION_TURNS}" in history  # 2 stored turns -> next is 3; lives in the trailer
+        assert (
+            f"This is turn 3 of {MAX_CONVERSATION_TURNS}" in history
+        )  # 2 stored turns -> next is 3; lives in the trailer
 
         # Test speaker identification
         assert "--- Turn 1 (Agent) ---" in history

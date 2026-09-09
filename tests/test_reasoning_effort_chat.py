@@ -1,7 +1,7 @@
 """Request-shape tests for the fork's chat-completions changes, hermetic (no host catalog)."""
 
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from providers.azure_openai import AzureOpenAIProvider
 from providers.custom import CustomProvider
@@ -51,7 +51,12 @@ def _drive(provider, caps, *, prompt="hi", system_prompt=None, max_output_tokens
 
 
 def _azure():
-    p = AzureOpenAIProvider(api_key="k", azure_endpoint="https://x.openai.azure.com")
+    with patch.object(AzureOpenAIProvider, "_load_registry_entries", return_value={}):
+        p = AzureOpenAIProvider(
+            api_key="k",
+            azure_endpoint="https://x.openai.azure.com",
+            deployments={name: name for name in ("sol", "terra", "luna", "sampling")},
+        )
     p._deployment_map = {"sol": "sol", "terra": "terra", "luna": "luna", "sampling": "sampling"}
     return p
 

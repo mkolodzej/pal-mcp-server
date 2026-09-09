@@ -11,13 +11,17 @@ from pathlib import Path
 
 import pytest
 
+BASH = os.environ.get("PAL_TEST_BASH") or (
+    str(Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe") if os.name == "nt" else "bash"
+)
+
 
 class TestPipDetectionFix:
     """Test cases for issue #188: PIP is available but not recognized."""
 
     def test_run_server_script_syntax_valid(self):
         """Test that run-server.sh has valid bash syntax."""
-        result = subprocess.run(["bash", "-n", "./run-server.sh"], capture_output=True, text=True)
+        result = subprocess.run([BASH, "-n", "./run-server.sh"], capture_output=True, text=True)
         assert result.returncode == 0, f"Syntax error in run-server.sh: {result.stderr}"
 
     def test_run_server_has_proper_shebang(self):
@@ -46,7 +50,7 @@ class TestPipDetectionFix:
         assert 'cd "$(dirname' in content, "Should convert to absolute path"
 
         # Test successful completion - our fix should make the script more robust
-        result = subprocess.run(["bash", "-n", "./run-server.sh"], capture_output=True, text=True)
+        result = subprocess.run([BASH, "-n", "./run-server.sh"], capture_output=True, text=True)
         assert result.returncode == 0, "Script should have valid syntax after our fix"
 
     def test_pip_detection_with_non_interactive_shell(self):
@@ -112,12 +116,12 @@ class TestPipDetectionFix:
         # Run setup_env_file inside isolated shell session
         command = f"""
         set -e
-        cd "{tmp_path}"
-        source "{script_path}"
+        cd "{tmp_path.as_posix()}"
+        source "{script_path.as_posix()}"
         setup_env_file
         """
         env = os.environ.copy()
-        subprocess.run(["bash", "-lc", command], check=True, env=env, text=True)
+        subprocess.run([BASH, "-lc", command], check=True, env=env, text=True)
 
         artifacts = {p.name for p in tmp_path.glob(".env*")}
         assert ".env''" not in artifacts, "setup_env_file should not create BSD sed backup artifacts"

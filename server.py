@@ -1483,6 +1483,15 @@ async def main():
     logger.info(f"Available tools: {list(TOOLS.keys())}")
     logger.info("Server ready - waiting for tool requests...")
 
+    # Server-wide guidance must not add selectors absent from a tool's schema.
+    handshake_instructions = (
+        "Follow the selected tool's inputSchema. Only tools whose inputSchema exposes `model` "
+        "accept that argument. For consensus, use its `models` array with explicit roster entries "
+        "and preserve any user-specified model names; never add a top-level `model`. "
+        "For tools with no model selector, do not add `model` or `models`. "
+        "The following single-model guidance applies only to tools that expose `model`: "
+    )
+
     # Prepare dynamic instructions for the MCP client based on model mode
     if IS_AUTO_MODE:
         # Embed the roster in the handshake instead of telling every client to
@@ -1511,17 +1520,24 @@ async def main():
                 summary = summary.split(".")[0].strip()[:80]
                 seen[caps.model_name] = summary
             roster = "; ".join(f"{n} ({d})" if d else n for n, d in sorted(seen.items()))
-        except Exception:  # never block startup on a roster summary
+        except Exception as exc:  # never block startup on a roster summary
+            logger.warning("Could not build initialization model roster (%s)", type(exc).__name__)
             roster = ""
 
-        handshake_instructions = (
+        handshake_instructions += (
             "When the user names a specific model (e.g. 'use chat with gpt5'), send that exact model in the tool call. "
-            "When no model is mentioned, choose from the models listed here"
-            + (f": {roster}. " if roster else " (call `listmodels` if this list is empty). ")
-            + "This roster is current as of server start; call `listmodels` only if a model name is rejected."
         )
+        if roster:
+            handshake_instructions += (
+                f"When no model is mentioned, choose from the models listed here: {roster}. "
+                "This roster is current as of server start; call `listmodels` only if a model name is rejected."
+            )
+        else:
+            handshake_instructions += (
+                "No model roster is available in these instructions; call `listmodels` to discover available models."
+            )
     else:
-        handshake_instructions = (
+        handshake_instructions += (
             "When the user names a specific model (e.g. 'use chat with gpt5'), send that exact model in the tool call. "
             f"When no model is mentioned, default to '{DEFAULT_MODEL}'."
         )

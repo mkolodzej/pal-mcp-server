@@ -14,9 +14,24 @@ Additionally, this fix properly handles home directory containers:
   and handled by is_home_directory_root() in resolve_and_validate_path()
 """
 
+import os
 from pathlib import Path
 
 from utils.security_config import is_dangerous_path
+
+
+def system_path(value: str) -> Path:
+    """Exercise the installed OS's blocked directories with the same suffix cases."""
+    if os.name == "nt":
+        for posix, windows in (
+            ("/etc", "C:/Windows/System32"),
+            ("/usr", "C:/Program Files"),
+            ("/var", "C:/Windows/Logs"),
+            ("/home", "C:/Users"),
+        ):
+            if value == posix or value.startswith(posix + "/"):
+                return Path(windows + value[len(posix) :])
+    return Path(value)
 
 
 class TestPathTraversalFix:
@@ -24,22 +39,22 @@ class TestPathTraversalFix:
 
     def test_exact_match_still_works(self):
         """Test that exact dangerous paths are still blocked."""
-        assert is_dangerous_path(Path("/etc")) is True
-        assert is_dangerous_path(Path("/usr")) is True
-        assert is_dangerous_path(Path("/var")) is True
+        assert is_dangerous_path(system_path("/etc")) is True
+        assert is_dangerous_path(system_path("/usr")) is True
+        assert is_dangerous_path(system_path("/var")) is True
 
     def test_subdirectory_now_blocked(self):
         """Test that subdirectories of system paths are blocked (the fix)."""
         # These were allowed before the fix
-        assert is_dangerous_path(Path("/etc/passwd")) is True
-        assert is_dangerous_path(Path("/etc/shadow")) is True
-        assert is_dangerous_path(Path("/etc/hosts")) is True
-        assert is_dangerous_path(Path("/var/log/auth.log")) is True
+        assert is_dangerous_path(system_path("/etc/passwd")) is True
+        assert is_dangerous_path(system_path("/etc/shadow")) is True
+        assert is_dangerous_path(system_path("/etc/hosts")) is True
+        assert is_dangerous_path(system_path("/var/log/auth.log")) is True
 
     def test_deeply_nested_blocked(self):
         """Test that deeply nested system paths are blocked."""
-        assert is_dangerous_path(Path("/etc/ssh/sshd_config")) is True
-        assert is_dangerous_path(Path("/usr/local/bin/python")) is True
+        assert is_dangerous_path(system_path("/etc/ssh/sshd_config")) is True
+        assert is_dangerous_path(system_path("/usr/local/bin/python")) is True
 
     def test_root_blocked(self):
         """Test that root directory is blocked."""
@@ -68,7 +83,7 @@ class TestHomeDirectoryHandling:
 
     def test_home_container_blocked(self):
         """Test that /home itself is blocked."""
-        assert is_dangerous_path(Path("/home")) is True
+        assert is_dangerous_path(system_path("/home")) is True
 
     def test_home_subdirectories_allowed(self):
         """Test that /home subdirectories pass through is_dangerous_path().
@@ -79,13 +94,13 @@ class TestHomeDirectoryHandling:
         """
         # User home directories should pass is_dangerous_path()
         # (they are handled by is_home_directory_root() separately)
-        assert is_dangerous_path(Path("/home/user")) is False
-        assert is_dangerous_path(Path("/home/user/project")) is False
-        assert is_dangerous_path(Path("/home/user/project/src/main.py")) is False
+        assert is_dangerous_path(system_path("/home/user")) is False
+        assert is_dangerous_path(system_path("/home/user/project")) is False
+        assert is_dangerous_path(system_path("/home/user/project/src/main.py")) is False
 
     def test_home_deeply_nested_allowed(self):
         """Test that deeply nested home paths are allowed."""
-        assert is_dangerous_path(Path("/home/user/documents/work/project/src")) is False
+        assert is_dangerous_path(system_path("/home/user/documents/work/project/src")) is False
 
 
 class TestRegressionPrevention:
@@ -93,11 +108,11 @@ class TestRegressionPrevention:
 
     def test_etc_passwd_blocked(self):
         """Test /etc/passwd is blocked (common attack target)."""
-        assert is_dangerous_path(Path("/etc/passwd")) is True
+        assert is_dangerous_path(system_path("/etc/passwd")) is True
 
     def test_etc_shadow_blocked(self):
         """Test /etc/shadow is blocked (password hashes)."""
-        assert is_dangerous_path(Path("/etc/shadow")) is True
+        assert is_dangerous_path(system_path("/etc/shadow")) is True
 
 
 class TestWindowsPathHandling:

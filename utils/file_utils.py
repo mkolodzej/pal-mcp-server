@@ -150,7 +150,7 @@ def is_home_directory_root(path: Path) -> bool:
             return True
 
         # Also check common home directory patterns
-        path_str = str(resolved_path).lower()
+        path_str = resolved_path.as_posix().lower()
         home_patterns = [
             "/users/",  # macOS
             "/home/",  # Linux
