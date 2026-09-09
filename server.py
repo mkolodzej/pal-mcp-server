@@ -756,6 +756,10 @@ async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextCon
     except Exception:
         pass
 
+    # Keep the submitted turn separate from reconstructed prompts and inherited files.
+    # Persist it only after boundary validation accepts the request.
+    original_arguments = arguments.copy()
+
     # Handle thread context reconstruction if continuation_id is present
     if "continuation_id" in arguments and arguments["continuation_id"]:
         continuation_id = arguments["continuation_id"]
@@ -807,6 +811,7 @@ async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextCon
         if not tool.requires_model():
             logger.debug(f"Tool {name} doesn't require model resolution - skipping model validation")
             # Execute tool directly without model context
+            _record_continuation_user_turn(original_arguments)
             return await tool.execute(arguments)
 
         # Handle auto mode at MCP boundary - resolve to specific model
@@ -862,6 +867,7 @@ async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextCon
                 raise ToolExecutionError(ToolOutput(**file_size_check).model_dump_json())
 
         # Execute tool with pre-resolved model context
+        _record_continuation_user_turn(original_arguments)
         result = await tool.execute(arguments)
         logger.info(f"Tool '{name}' execution completed")
 
@@ -965,9 +971,24 @@ Remember: Only suggest follow-ups when they would genuinely add value to the dis
 "The agent to use the continuation_id when you do."""
 
 
+def _record_continuation_user_turn(arguments: dict[str, Any]) -> None:
+    """Append an accepted continuation before execution, preserving the submitted input.
+
+    Boundary rejections must not change conversation history or retain attachments.
+    Once execution starts, existing tool-error and assistant-turn behavior is unchanged.
+    """
+    continuation_id = arguments.get("continuation_id")
+    user_prompt = arguments.get("prompt", "")
+    if continuation_id and user_prompt:
+        from utils.conversation_memory import add_turn
+
+        if not add_turn(continuation_id, "user", user_prompt, files=arguments.get("absolute_file_paths") or []):
+            logger.warning(f"Failed to add user turn to thread {continuation_id}")
+
+
 async def reconstruct_thread_context(arguments: dict[str, Any]) -> dict[str, Any]:
     """
-    Reconstruct conversation context for stateless-to-stateful thread continuation.
+    Reconstruct conversation context without persisting the pending user turn.
 
     This is a critical function that transforms the inherently stateless MCP protocol into
     stateful multi-turn conversations. It loads persistent conversation state from in-memory
@@ -1044,7 +1065,8 @@ async def reconstruct_thread_context(arguments: dict[str, Any]) -> dict[str, Any
         4. Debug tool can reference specific findings from analyze tool
         5. Natural cross-tool collaboration without context loss
     """
-    from utils.conversation_memory import add_turn, build_conversation_history, get_thread
+    from utils.conversation_memory import build_conversation_history, get_thread
+    from utils.token_utils import estimate_tokens
 
     continuation_id = arguments["continuation_id"]
 
@@ -1071,26 +1093,6 @@ async def reconstruct_thread_context(arguments: dict[str, Any]) -> dict[str, Any
             f"continuation_id parameter. "
             f"This will create a new conversation thread that can continue with follow-up exchanges."
         )
-
-    # Add user's new input to the conversation
-    user_prompt = arguments.get("prompt", "")
-    if user_prompt:
-        # Capture files referenced in this turn
-        user_files = arguments.get("absolute_file_paths") or []
-        logger.debug(f"[CONVERSATION_DEBUG] Adding user turn to thread {continuation_id}")
-        from utils.token_utils import estimate_tokens
-
-        user_prompt_tokens = estimate_tokens(user_prompt)
-        logger.debug(
-            f"[CONVERSATION_DEBUG] User prompt length: {len(user_prompt)} chars (~{user_prompt_tokens:,} tokens)"
-        )
-        logger.debug(f"[CONVERSATION_DEBUG] User files: {user_files}")
-        success = add_turn(continuation_id, "user", user_prompt, files=user_files)
-        if not success:
-            logger.warning(f"Failed to add user turn to thread {continuation_id}")
-            logger.debug("[CONVERSATION_DEBUG] Failed to add user turn - thread may be at turn limit or expired")
-        else:
-            logger.debug(f"[CONVERSATION_DEBUG] Successfully added user turn to thread {continuation_id}")
 
     # Create model context early to use for history building
     from utils.model_context import ModelContext
