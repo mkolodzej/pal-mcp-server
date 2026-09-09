@@ -8,6 +8,7 @@ import os
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
+from tests.conftest import abs_path
 from tools.analyze import AnalyzeTool
 from tools.codereview import CodeReviewTool
 from tools.debug import DebugIssueTool
@@ -38,8 +39,8 @@ class TestWorkflowToolsUTF8(unittest.IsolatedAsyncioTestCase):
             "total_steps": 3,
             "next_step_required": True,
             "findings": "Code analysis reveals performance issues 🔍",
-            "files_checked": ["/src/main.py"],
-            "relevant_files": ["/src/main.py"],
+            "files_checked": [abs_path("/src/main.py")],
+            "relevant_files": [abs_path("/src/main.py")],
             "issues_found": [{"severity": "high", "description": "Function too complex - refactoring needed"}],
             "investigation_required": True,
             "required_actions": ["Review code dependencies", "Analyze architectural patterns"],
@@ -105,7 +106,7 @@ class TestWorkflowToolsUTF8(unittest.IsolatedAsyncioTestCase):
                 "total_steps": 1,
                 "next_step_required": False,
                 "findings": "Starting architectural analysis of Python code",
-                "relevant_files": ["/test/main.py"],
+                "relevant_files": [abs_path("/test/main.py")],
                 "model": "flash",
             }
         )
@@ -173,7 +174,7 @@ class TestWorkflowToolsUTF8(unittest.IsolatedAsyncioTestCase):
                 "total_steps": 1,
                 "next_step_required": False,
                 "findings": "Code review complete",
-                "relevant_files": ["/test/example.py"],
+                "relevant_files": [abs_path("/test/example.py")],
                 "model": "test-model",
             }
         )
@@ -217,8 +218,8 @@ class TestWorkflowToolsUTF8(unittest.IsolatedAsyncioTestCase):
                         "findings": (
                             "Erreur analysée: variable 'données' non définie. " "Cause probable: import manquant."
                         ),
-                        "files_checked": ["/src/data_processor.py"],
-                        "relevant_files": ["/src/data_processor.py"],
+                        "files_checked": [abs_path("/src/data_processor.py")],
+                        "relevant_files": [abs_path("/src/data_processor.py")],
                         "hypothesis": ("Variable 'données' not defined - missing import"),
                         "confidence": "medium",
                         "investigation_status": "in_progress",
@@ -242,8 +243,8 @@ class TestWorkflowToolsUTF8(unittest.IsolatedAsyncioTestCase):
                 "total_steps": 1,
                 "next_step_required": False,
                 "findings": "Error detected during script execution",
-                "files_checked": ["/src/data_processor.py"],
-                "relevant_files": ["/src/data_processor.py"],
+                "files_checked": [abs_path("/src/data_processor.py")],
+                "relevant_files": [abs_path("/src/data_processor.py")],
                 "hypothesis": ("Variable 'données' not defined - missing import"),
                 "confidence": "medium",
                 "model": "test-model",

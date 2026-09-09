@@ -8,6 +8,7 @@ import tempfile
 
 import pytest
 
+from tests.conftest import abs_path
 from tools import AnalyzeTool, ChatTool, CodeReviewTool, ThinkDeepTool
 from tools.shared.exceptions import ToolExecutionError
 
@@ -404,7 +405,7 @@ class TestAbsolutePathValidation:
                         "total_steps": 1,
                         "next_step_required": False,
                         "findings": "Initial code analysis",
-                        "relevant_files": ["/absolute/path/file.py"],
+                        "relevant_files": [abs_path("/absolute/path/file.py")],
                         "model": "o3-mini",
                     }
                 )
@@ -456,7 +457,7 @@ class TestSpecialStatusModels:
             "status": "trace_complete",
             "trace_type": "precision",
             "entry_point": {
-                "file": "/path/to/file.py",
+                "file": abs_path("/path/to/file.py"),
                 "class_or_struct": "MyClass",
                 "method": "myMethod",
                 "signature": "def myMethod(self, param1: str) -> bool",
@@ -464,8 +465,18 @@ class TestSpecialStatusModels:
             },
             "call_path": [
                 {
-                    "from": {"file": "/path/to/file.py", "class": "MyClass", "method": "myMethod", "line": 10},
-                    "to": {"file": "/path/to/other.py", "class": "OtherClass", "method": "otherMethod", "line": 20},
+                    "from": {
+                        "file": abs_path("/path/to/file.py"),
+                        "class": "MyClass",
+                        "method": "myMethod",
+                        "line": 10,
+                    },
+                    "to": {
+                        "file": abs_path("/path/to/other.py"),
+                        "class": "OtherClass",
+                        "method": "otherMethod",
+                        "line": 20,
+                    },
                     "reason": "direct call",
                     "condition": None,
                     "ambiguous": False,
@@ -476,7 +487,7 @@ class TestSpecialStatusModels:
         model = TraceComplete(**precision_data)
         assert model.status == "trace_complete"
         assert model.trace_type == "precision"
-        assert model.entry_point.file == "/path/to/file.py"
+        assert model.entry_point.file == abs_path("/path/to/file.py")
         assert len(model.call_path) == 1
 
         # Test dependencies mode
@@ -484,14 +495,14 @@ class TestSpecialStatusModels:
             "status": "trace_complete",
             "trace_type": "dependencies",
             "target": {
-                "file": "/path/to/file.py",
+                "file": abs_path("/path/to/file.py"),
                 "class_or_struct": "MyClass",
                 "method": "myMethod",
                 "signature": "def myMethod(self, param1: str) -> bool",
             },
             "incoming_dependencies": [
                 {
-                    "from_file": "/path/to/caller.py",
+                    "from_file": abs_path("/path/to/caller.py"),
                     "from_class": "CallerClass",
                     "from_method": "callerMethod",
                     "line": 15,
@@ -500,7 +511,7 @@ class TestSpecialStatusModels:
             ],
             "outgoing_dependencies": [
                 {
-                    "to_file": "/path/to/dependency.py",
+                    "to_file": abs_path("/path/to/dependency.py"),
                     "to_class": "DepClass",
                     "to_method": "depMethod",
                     "line": 25,
@@ -512,6 +523,6 @@ class TestSpecialStatusModels:
         model = TraceComplete(**dependencies_data)
         assert model.status == "trace_complete"
         assert model.trace_type == "dependencies"
-        assert model.target.file == "/path/to/file.py"
+        assert model.target.file == abs_path("/path/to/file.py")
         assert len(model.incoming_dependencies) == 1
         assert len(model.outgoing_dependencies) == 1

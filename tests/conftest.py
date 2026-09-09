@@ -234,3 +234,20 @@ def disable_force_env_override(monkeypatch):
         yield
     finally:
         env_config.reload_env()
+
+
+def abs_path(posix_path: str) -> str:
+    """Make a POSIX-rooted fixture path absolute on the current platform.
+
+    Python 3.13 changed ``ntpath.isabs``: ``"/src/main.py"`` is drive-RELATIVE on
+    Windows and no longer reports as absolute (bpo/gh-44626). PAL rejects
+    non-absolute entries in ``relevant_files``/``files_checked``, so fixtures
+    written with a bare POSIX root fail on Windows 3.13+ while still passing on
+    POSIX and on Windows 3.12.
+
+    Prefixing the current drive keeps one literal working on both platforms.
+    Identity on POSIX, so Linux/macOS behavior is unchanged.
+    """
+    if sys.platform == "win32":
+        return "C:" + posix_path
+    return posix_path

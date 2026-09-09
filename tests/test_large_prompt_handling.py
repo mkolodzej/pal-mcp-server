@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from config import MCP_PROMPT_SIZE_LIMIT
+from tests.conftest import abs_path
 from tools.chat import ChatTool
 from tools.codereview import CodeReviewTool
 from tools.shared.exceptions import ToolExecutionError
@@ -171,8 +172,8 @@ class TestLargePromptHandling:
                     "total_steps": 1,
                     "next_step_required": False,
                     "findings": "Initial testing",
-                    "relevant_files": ["/some/file.py"],
-                    "files_checked": ["/some/file.py"],
+                    "relevant_files": [abs_path("/some/file.py")],
+                    "files_checked": [abs_path("/some/file.py")],
                     "focus_on": large_prompt,
                     "prompt": "Test code review for validation purposes",
                     "model": "o3-mini",
@@ -256,7 +257,7 @@ class TestLargePromptHandling:
     async def test_multiple_files_with_prompt_txt(self, temp_prompt_file):
         """Test handling of prompt.txt alongside other files."""
         tool = ChatTool()
-        other_file = "/some/other/file.py"
+        other_file = abs_path("/some/other/file.py")
 
         with (
             patch("utils.model_context.ModelContext") as mock_model_context_cls,
@@ -399,7 +400,7 @@ class TestLargePromptHandling:
         from tests.mock_helpers import create_mock_provider
 
         tool = ChatTool()
-        bad_file = "/nonexistent/prompt.txt"
+        bad_file = abs_path("/nonexistent/prompt.txt")
 
         with (
             patch.object(tool, "get_model_provider") as mock_get_provider,

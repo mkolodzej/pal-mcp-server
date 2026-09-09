@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from tests.conftest import abs_path
 from tests.mock_helpers import create_mock_provider
 from tools.analyze import AnalyzeTool
 from tools.debug import DebugIssueTool
@@ -53,7 +54,7 @@ class TestDynamicContextRequests:
                 "total_steps": 1,
                 "next_step_required": False,
                 "findings": "Initial dependency analysis",
-                "relevant_files": ["/absolute/path/src/index.js"],
+                "relevant_files": [abs_path("/absolute/path/src/index.js")],
             }
         )
 
@@ -95,8 +96,8 @@ class TestDynamicContextRequests:
                 "total_steps": 3,
                 "next_step_required": True,
                 "findings": "The error indicates 'utils' module is not imported or defined",
-                "files_checked": ["/code/main.py"],
-                "relevant_files": ["/code/main.py"],
+                "files_checked": [abs_path("/code/main.py")],
+                "relevant_files": [abs_path("/code/main.py")],
                 "hypothesis": "Missing import statement for utils module",
                 "confidence": "high",
             }
@@ -134,7 +135,7 @@ class TestDynamicContextRequests:
                 "total_steps": 1,
                 "next_step_required": False,
                 "findings": "Initial code analysis",
-                "relevant_files": ["/absolute/path/test.py"],
+                "relevant_files": [abs_path("/absolute/path/test.py")],
             }
         )
 
@@ -183,9 +184,9 @@ class TestDynamicContextRequests:
                         "args": {
                             "prompt": "Analyze database connection timeout issue",
                             "relevant_files": [
-                                "/config/database.yml",
-                                "/src/db.py",
-                                "/logs/error.log",
+                                abs_path("/config/database.yml"),
+                                abs_path("/src/db.py"),
+                                abs_path("/logs/error.log"),
                             ],
                         },
                     },
@@ -207,7 +208,7 @@ class TestDynamicContextRequests:
                     "total_steps": 1,
                     "next_step_required": False,
                     "findings": "Initial database timeout analysis",
-                    "relevant_files": ["/absolute/logs/error.log"],
+                    "relevant_files": [abs_path("/absolute/logs/error.log")],
                 }
             )
 
@@ -315,7 +316,7 @@ class TestDynamicContextRequests:
                 "total_steps": 1,
                 "next_step_required": False,
                 "findings": "Initial analysis",
-                "relevant_files": ["/absolute/path/test.py"],
+                "relevant_files": [abs_path("/absolute/path/test.py")],
             }
         )
 
@@ -389,7 +390,7 @@ class TestCollaborationWorkflow:
                 "total_steps": 1,
                 "next_step_required": False,
                 "findings": "Initial dependency analysis",
-                "relevant_files": ["/absolute/path/src/index.js"],
+                "relevant_files": [abs_path("/absolute/path/src/index.js")],
             }
         )
 
@@ -454,7 +455,7 @@ class TestCollaborationWorkflow:
                 "total_steps": 1,
                 "next_step_required": False,
                 "findings": "Initial database timeout analysis",
-                "relevant_files": ["/logs/error.log"],
+                "relevant_files": [abs_path("/logs/error.log")],
             }
         )
 
@@ -508,7 +509,10 @@ class TestCollaborationWorkflow:
                 "total_steps": 1,
                 "next_step_required": False,
                 "findings": "Analysis with configuration context",
-                "relevant_files": ["/absolute/path/config.py", "/logs/error.log"],  # Additional context provided
+                "relevant_files": [
+                    abs_path("/absolute/path/config.py"),
+                    abs_path("/logs/error.log"),
+                ],  # Additional context provided
             }
         )
 
