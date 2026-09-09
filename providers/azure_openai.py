@@ -388,4 +388,20 @@ class AzureOpenAIProvider(OpenAICompatibleProvider):
         if not scored:
             return None
         scored.sort(key=lambda item: (-item[0], -item[1], item[2]))
+
+        if category == ToolModelCategory.BALANCED and len(scored) > 2:
+            # BALANCED means the MIDDLE of the roster, not the top of it. Ranking by
+            # capability and taking scored[0] made "balanced" a synonym for
+            # "most expensive": on this host's sol(19)/terra(16)/luna(12) roster it
+            # returned sol, so every balanced tool silently used the frontier tier.
+            #
+            # That mattered in September 2026: the month billed $105.91 against a $50
+            # credit, 93% of it on sol. FAST_RESPONSE and EXTENDED_REASONING already
+            # sit at the two ends; leaving BALANCED pinned to the top end meant the
+            # middle deployment could never be selected by any category.
+            #
+            # Median index, so it degrades sensibly for rosters of any size and still
+            # honors capability order within the tier.
+            return scored[len(scored) // 2][2]
+
         return scored[0][2]

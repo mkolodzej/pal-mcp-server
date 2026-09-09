@@ -240,15 +240,22 @@ class BaseTool(ABC):
         from config import DEFAULT_MODEL
         from providers.registry import ModelProviderRegistry
 
-        # Case 1: Explicit auto mode
+        # Case 1: Explicit auto mode.
+        # `auto` no longer forces the caller to pick: the boundary resolves it per
+        # tool category. Keep `model` OPTIONAL in the schema whenever that
+        # resolution can actually produce a model, so `auto` behaves like any other
+        # default. Fall back to requiring a choice only if it cannot.
         if DEFAULT_MODEL.lower() == "auto":
-            return True
+            try:
+                resolved = ModelProviderRegistry.get_preferred_fallback_model(self.get_model_category())
+            except Exception:
+                resolved = None
+            return not resolved
 
         # Case 2: Model not available (fallback to auto mode)
-        if DEFAULT_MODEL.lower() != "auto":
-            provider = ModelProviderRegistry.get_provider_for_model(DEFAULT_MODEL)
-            if not provider:
-                return True
+        provider = ModelProviderRegistry.get_provider_for_model(DEFAULT_MODEL)
+        if not provider:
+            return True
 
         return False
 
@@ -265,9 +272,23 @@ class BaseTool(ABC):
         Returns:
             bool: True if we should require model selection
         """
-        # Case 1: Model is explicitly "auto"
+        # Case 1: Model is explicitly "auto" -- a RESOLVABLE value, not an error.
+        # server.py resolves it at the MCP boundary from the tool's category
+        # (chat -> fast_response -> luna; thinkdeep/codereview -> extended_reasoning
+        # -> sol; balanced -> the middle tier), so a provider never sees "auto".
+        # Bouncing it back to the caller only bought a round trip -- and measured
+        # 2026-09-01 that round trip WAS the cost: clients answered by calling
+        # `listmodels`, 347 of 2350 tool calls (15%) spent re-learning a static
+        # roster. Resolve locally instead; ask only if the category resolves to
+        # nothing usable.
         if model_name.lower() == "auto":
-            return True
+            from providers.registry import ModelProviderRegistry
+
+            try:
+                resolved = ModelProviderRegistry.get_preferred_fallback_model(self.get_model_category())
+            except Exception:
+                resolved = None
+            return not resolved
 
         # Case 2: Requested model is not available
         from providers.registry import ModelProviderRegistry
@@ -1293,9 +1314,23 @@ When recommending searches, be specific about what information you need and why 
         Returns:
             bool: True if we should require model selection
         """
-        # Case 1: Model is explicitly "auto"
+        # Case 1: Model is explicitly "auto" -- a RESOLVABLE value, not an error.
+        # server.py resolves it at the MCP boundary from the tool's category
+        # (chat -> fast_response -> luna; thinkdeep/codereview -> extended_reasoning
+        # -> sol; balanced -> the middle tier), so a provider never sees "auto".
+        # Bouncing it back to the caller only bought a round trip -- and measured
+        # 2026-09-01 that round trip WAS the cost: clients answered by calling
+        # `listmodels`, 347 of 2350 tool calls (15%) spent re-learning a static
+        # roster. Resolve locally instead; ask only if the category resolves to
+        # nothing usable.
         if model_name.lower() == "auto":
-            return True
+            from providers.registry import ModelProviderRegistry
+
+            try:
+                resolved = ModelProviderRegistry.get_preferred_fallback_model(self.get_model_category())
+            except Exception:
+                resolved = None
+            return not resolved
 
         # Case 2: Requested model is not available
         from providers.registry import ModelProviderRegistry

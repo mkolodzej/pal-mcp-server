@@ -270,8 +270,16 @@ class TestAutoModeComprehensive:
             tool = AnalyzeTool()
             schema = tool.get_input_schema()
 
-            # Should have model as required field
-            assert "model" in schema["required"]
+            # `model` is now OPTIONAL under DEFAULT_MODEL=auto.
+            # Changed deliberately: `auto` is a resolvable value, not a demand that
+            # the caller choose. server.py resolves it at the MCP boundary from the
+            # tool's category, so a provider never sees "auto". Requiring the field
+            # only bought a round trip, and clients answered it by calling
+            # `listmodels` -- 347 of 2350 tool calls (15%) measured 2026-09-01.
+            # The schema still DESCRIBES the roster (asserted below) so a caller who
+            # wants to choose still can; it just is not forced to.
+            assert "model" not in schema["required"]
+            assert "model" in schema["properties"]
 
             # In auto mode, the schema should now have a description field
             # instructing users to use the listmodels tool instead of an enum

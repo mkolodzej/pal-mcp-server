@@ -143,3 +143,65 @@ def test_registry_configuration_merges_capabilities(dummy_azure_client, monkeypa
     # API call should use deployment defined in registry
     provider.generate_content("hello", "gpt-4o")
     assert dummy_azure_client["request_kwargs"]["model"] == "registry-deployment"
+
+
+def _tiered_provider(dummy_azure_client, monkeypatch):
+    """Provider with a three-tier roster shaped like this host's sol/terra/luna."""
+    from tools.models import ToolModelCategory  # noqa: F401  (imported by callers)
+
+    tiers = {
+        "sol": 19,
+        "terra": 16,
+        "luna": 12,
+    }
+
+    def fake_registry_entries(self):
+        out = {}
+        for name, rank in tiers.items():
+            out[name] = {
+                "deployment": name,
+                "capability": ModelCapabilities(
+                    provider=ProviderType.AZURE,
+                    model_name=name,
+                    friendly_name=f"Azure {name}",
+                    context_window=922_000,
+                    max_output_tokens=128_000,
+                    intelligence_score=rank,
+                    supports_extended_thinking=True,
+                ),
+            }
+        return out
+
+    monkeypatch.setattr(AzureOpenAIProvider, "_load_registry_entries", fake_registry_entries)
+    return AzureOpenAIProvider(api_key="key", azure_endpoint="https://example.openai.azure.com/")
+
+
+def test_balanced_category_picks_the_middle_tier(dummy_azure_client, monkeypatch):
+    """BALANCED must mean the middle of the roster, not the top of it.
+
+    Ranking by capability and taking the best made "balanced" a synonym for "most
+    expensive": on a sol(19)/terra(16)/luna(12) roster it returned sol, so every
+    balanced tool silently used the frontier tier and the middle deployment could
+    never be selected by any category. That contributed to a September 2026 month
+    that billed $105.91 against a $50 credit, 93% of it on sol.
+    """
+    from tools.models import ToolModelCategory
+
+    provider = _tiered_provider(dummy_azure_client, monkeypatch)
+    allowed = ["sol", "terra", "luna"]
+
+    assert provider.get_preferred_model(ToolModelCategory.BALANCED, allowed) == "terra"
+    # The two ends must not move.
+    assert provider.get_preferred_model(ToolModelCategory.EXTENDED_REASONING, allowed) == "sol"
+    assert provider.get_preferred_model(ToolModelCategory.FAST_RESPONSE, allowed) == "luna"
+
+
+def test_balanced_degrades_for_small_rosters(dummy_azure_client, monkeypatch):
+    """With fewer than three tiers there is no meaningful middle; keep the best."""
+    from tools.models import ToolModelCategory
+
+    provider = _tiered_provider(dummy_azure_client, monkeypatch)
+
+    assert provider.get_preferred_model(ToolModelCategory.BALANCED, ["sol", "terra"]) == "sol"
+    assert provider.get_preferred_model(ToolModelCategory.BALANCED, ["sol"]) == "sol"
+    assert provider.get_preferred_model(ToolModelCategory.BALANCED, []) is None
