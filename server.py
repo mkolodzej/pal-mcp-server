@@ -1493,6 +1493,9 @@ async def main():
         "For tools with no model selector, do not add `model` or `models`. "
         "The following single-model guidance applies only to tools that expose `model`: "
     )
+    from utils.model_guidance import get_model_selection_guidance
+
+    handshake_instructions += get_model_selection_guidance(DEFAULT_MODEL, IS_AUTO_MODE) + " "
 
     # Prepare dynamic instructions for the MCP client based on model mode
     if IS_AUTO_MODE:
@@ -1526,9 +1529,6 @@ async def main():
             logger.warning("Could not build initialization model roster (%s)", type(exc).__name__)
             roster = ""
 
-        handshake_instructions += (
-            "When the user names a specific model (e.g. 'use chat with gpt5'), send that exact model in the tool call. "
-        )
         if roster:
             handshake_instructions += (
                 f"When no model is mentioned, choose from the models listed here: {roster}. "
@@ -1538,12 +1538,6 @@ async def main():
             handshake_instructions += (
                 "No model roster is available in these instructions; call `listmodels` to discover available models."
             )
-    else:
-        handshake_instructions += (
-            "When the user names a specific model (e.g. 'use chat with gpt5'), send that exact model in the tool call. "
-            f"When no model is mentioned, default to '{DEFAULT_MODEL}'."
-        )
-
     # Run the server using stdio transport (standard input/output)
     # This allows the server to be launched by MCP clients as a subprocess
     async with stdio_server() as (read_stream, write_stream):

@@ -905,8 +905,9 @@ class OpenAICompatibleProvider(ModelProvider):
         raise ValueError(
             f"Request is ~{total:,} input tokens, over the {limit:,} guard. Azure prices the "
             f"ENTIRE request at long-context rates past 272,000 tokens (~3x for cache writes, "
-            f"2.5x for output), so this one call would cost roughly triple. Send file PATHS via "
-            f"relevant_files instead of pasted file text, or split the work across calls. "
+            f"2.5x for output), so this one call would cost roughly triple. Reduce the assembled "
+            f"prompt, including attached file contents and retained conversation history. Use "
+            f"focused excerpts or a new thread when prior evidence is no longer relevant. "
             f"Override with PAL_LONG_CONTEXT_GUARD (0 disables)."
         )
 

@@ -25,17 +25,17 @@ COMMON_FIELD_DESCRIPTIONS = {
     "thinking_mode": "Reasoning depth: minimal, low, medium, high, or max.",
     "continuation_id": (
         "Unique thread continuation ID for multi-turn conversations. Works across different tools. "
-        "ALWAYS reuse the last continuation_id you were given—this preserves full conversation context, "
-        "files, and findings so the agent can resume seamlessly. It is also far cheaper: reusing a "
-        "thread keeps the file context byte-identical, so the provider serves it from its prompt "
-        "cache at ~10% of the input price instead of re-charging full price for the same tokens."
+        "Reuse a thread only when its previous evidence, files, and findings remain relevant. "
+        "Retained history and attachment contents still count as input tokens. Start a new thread "
+        "when prior context is stale or unrelated. Cache savings depend on provider behavior and "
+        "matching prompt prefixes; continuation alone does not guarantee a cache hit."
     ),
     "images": "Optional absolute image paths or base64 blobs for visual context.",
     "absolute_file_paths": (
-        "Full paths to relevant code. Pass the SAME set of files, in the SAME order, across calls "
-        "that share a continuation_id—file context is sent as a cacheable prefix, and reordering or "
-        "swapping files invalidates that cache and re-charges full input price. Prefer sending a "
-        "file once and asking several questions about it over re-sending a trimmed set per question."
+        "Full absolute paths to the smallest relevant set of files. File contents are embedded and still "
+        "consume input tokens; passing paths does not make large files cheaper. A continuation may "
+        "retain previously attached files even when omitted here. Use a new thread with focused "
+        "evidence when the old attachment set is no longer relevant."
     ),
 }
 

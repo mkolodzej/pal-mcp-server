@@ -10,16 +10,25 @@ from jsonschema import ValidationError, validate
 import config
 import server
 from providers.registry import ModelProviderRegistry
-from tools import ChallengeTool, ConsensusTool, ListModelsTool, LookupTool, VersionTool
+from tools import ChallengeTool, ChatTool, ConsensusTool, ListModelsTool, LookupTool, VersionTool
+from utils.model_guidance import get_model_selection_guidance
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["fixed", "auto", "auto_empty", "auto_error"])
-async def test_initialization_routes_model_selection_by_tool_schema(monkeypatch, caplog, mode):
+@pytest.mark.parametrize(
+    "routing", [None, "   ", "Use terra for routine reviews; sol for consequential scoped reviews."]
+)
+async def test_initialization_routes_model_selection_by_tool_schema(monkeypatch, caplog, mode, routing):
     """Inspect the real main() initialization options, not a detached text helper."""
     monkeypatch.setattr(config, "IS_AUTO_MODE", mode != "fixed")
+    monkeypatch.setattr(config, "DEFAULT_MODEL", "sol")
     monkeypatch.setattr(server, "DEFAULT_MODEL", "sol")
     monkeypatch.setattr(server, "configure_providers", lambda: None)
+    if routing is None:
+        monkeypatch.delenv("PAL_MODEL_ROUTING_GUIDANCE", raising=False)
+    else:
+        monkeypatch.setenv("PAL_MODEL_ROUTING_GUIDANCE", routing)
 
     def available_models():
         if mode == "auto_error":
@@ -50,6 +59,32 @@ async def test_initialization_routes_model_selection_by_tool_schema(monkeypatch,
     assert "no model selector" in instructions
     assert "do not add `model` or `models`" in instructions
     assert "exact model" in instructions
+    # Both serialized discovery surfaces carry the same selection policy.
+    monkeypatch.setattr(ChatTool, "is_effective_auto_mode", lambda self: mode != "fixed")
+    monkeypatch.setattr(ChatTool, "_get_ranked_model_summaries", lambda self: ([], 0, False))
+    monkeypatch.setattr(server, "TOOLS", {"chat": ChatTool()})
+    advertised = (await server.handle_list_tools())[0].model_dump(mode="json")
+    description = advertised["inputSchema"]["properties"]["model"]["description"]
+    continuation = advertised["inputSchema"]["properties"]["continuation_id"]["description"]
+    assert "only when" in continuation
+    assert "still count as input tokens" in continuation
+    assert "does not guarantee a cache hit" in continuation
+    assert "ALWAYS reuse" not in continuation
+    attachments = advertised["inputSchema"]["properties"]["absolute_file_paths"]["description"]
+    assert "smallest relevant" in attachments
+    assert "still consume input tokens" in attachments
+    shared_guidance = get_model_selection_guidance("sol", mode != "fixed")
+    assert shared_guidance in instructions
+    assert shared_guidance in description
+    for text in (instructions, description):
+        assert "Override only" not in text
+        assert "surface the server error instead of substituting another model" in text
+        if routing and routing.strip():
+            assert routing in text
+            assert text.index("exact model") < text.index(routing)
+            assert "When the user has not named a model" in text
+        else:
+            assert "deployment routing guidance" not in text
     if mode == "fixed":
         assert "default to 'sol'" in instructions
     elif mode == "auto":

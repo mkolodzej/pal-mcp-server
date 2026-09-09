@@ -31,7 +31,7 @@ CHAT_FIELD_DESCRIPTIONS = {
         "including your goal, what you've tried, and any specific challenges. "
         "WARNING: Large inline code must NOT be shared in prompt. Provide full-path to files on disk as separate parameter."
     ),
-    "absolute_file_paths": ("Full, absolute file paths to relevant code in order to share with external model"),
+    "absolute_file_paths": COMMON_FIELD_DESCRIPTIONS["absolute_file_paths"],
     "images": "Image paths (absolute) or base64 strings for optional visual context.",
     "working_directory_absolute_path": (
         "Absolute path to an existing directory where generated code artifacts can be saved."

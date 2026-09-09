@@ -127,7 +127,7 @@ class TestAutoMode:
             model_schema = schema["properties"]["model"]
             assert "enum" not in model_schema
             assert "listmodels" in model_schema["description"]
-            assert "default model" in model_schema["description"].lower()
+            assert "default to" in model_schema["description"].lower()
 
         finally:
             # Restore
