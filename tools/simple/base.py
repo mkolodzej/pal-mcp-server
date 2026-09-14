@@ -444,14 +444,21 @@ class SimpleTool(BaseTool):
             supports_thinking = capabilities.supports_extended_thinking
 
             # Generate content with provider abstraction
-            model_response = provider.generate_content(
+            from utils.model_failover import generate_with_auto_failover
+
+            call = generate_with_auto_failover(
+                self,
+                arguments,
+                request,
+                self._model_context,
                 prompt=prompt,
-                model_name=self._current_model_name,
                 system_prompt=system_prompt,
                 temperature=temperature,
                 thinking_mode=thinking_mode if supports_thinking else None,
                 images=images if images else None,
             )
+            model_response = call.response
+            provider = call.context.provider
 
             logger.info(f"Received response from {provider.get_provider_type().value} API for {self.get_name()}")
 
@@ -464,6 +471,7 @@ class SimpleTool(BaseTool):
                     "provider": provider,
                     "model_name": self._current_model_name,
                     "model_response": model_response,
+                    "fallback_reason": call.fallback_reason,
                 }
 
                 # Parse response using the same logic as old base.py
@@ -501,14 +509,19 @@ class SimpleTool(BaseTool):
                         retry_prompt = f"{original_prompt}\n\nIMPORTANT: Please provide a substantive response. If you cannot respond to the above request, please explain why and suggest alternatives."
 
                         try:
-                            retry_response = provider.generate_content(
+                            retry_call = generate_with_auto_failover(
+                                self,
+                                arguments,
+                                request,
+                                self._model_context,
                                 prompt=retry_prompt,
-                                model_name=self._current_model_name,
                                 system_prompt=system_prompt,
                                 temperature=temperature,
                                 thinking_mode=thinking_mode if supports_thinking else None,
                                 images=images if images else None,
                             )
+                            retry_response = retry_call.response
+                            provider = retry_call.context.provider
 
                             if retry_response.content:
                                 # Successful retry - use the retry response
@@ -520,6 +533,7 @@ class SimpleTool(BaseTool):
                                     "provider": provider,
                                     "model_name": self._current_model_name,
                                     "model_response": retry_response,
+                                    "fallback_reason": retry_call.fallback_reason or call.fallback_reason,
                                 }
 
                                 # Parse the retry response
@@ -629,6 +643,8 @@ class SimpleTool(BaseTool):
                         except AttributeError:
                             # Fallback if provider doesn't have get_provider_type method
                             metadata["provider_used"] = str(provider)
+                if model_info.get("fallback_reason"):
+                    metadata["fallback_reason"] = model_info["fallback_reason"]
 
             return ToolOutput(
                 status="success",
@@ -725,6 +741,8 @@ class SimpleTool(BaseTool):
                         except AttributeError:
                             # Fallback if provider doesn't have get_provider_type method
                             metadata["provider_used"] = str(provider)
+                if model_info.get("fallback_reason"):
+                    metadata["fallback_reason"] = model_info["fallback_reason"]
 
             return ToolOutput(
                 status="continuation_available",

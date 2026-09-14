@@ -1166,6 +1166,8 @@ class BaseWorkflowMixin(ABC):
                     "model_used": resolved_model_name,
                     "provider_used": provider_name,
                 }
+                if arguments.get("_model_fallback_reason"):
+                    metadata["fallback_reason"] = arguments["_model_fallback_reason"]
 
                 # Preserve existing metadata and add workflow metadata
                 if "metadata" not in response_data:
@@ -1462,8 +1464,6 @@ class BaseWorkflowMixin(ABC):
             else:
                 model_name = self._current_model_name
 
-            provider = self._model_context.provider
-
             # Prepare expert analysis context
             expert_context = self.prepare_expert_analysis_context(self.consolidated_findings)
 
@@ -1496,14 +1496,20 @@ class BaseWorkflowMixin(ABC):
                 logger.warning(warning)
 
             # Generate AI response - use request parameters if available
-            model_response = provider.generate_content(
+            from utils.model_failover import generate_with_auto_failover
+
+            call = generate_with_auto_failover(
+                self,
+                arguments,
+                request,
+                self._model_context,
                 prompt=prompt,
-                model_name=model_name,
                 system_prompt=system_prompt,
                 temperature=validated_temperature,
                 thinking_mode=self.get_request_thinking_mode(request),
                 images=list(set(self.consolidated_findings.images)) if self.consolidated_findings.images else None,
             )
+            model_response = call.response
 
             if model_response.content:
                 content = model_response.content.strip()

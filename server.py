@@ -814,6 +814,10 @@ async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextCon
             _record_continuation_user_turn(original_arguments)
             return await tool.execute(arguments)
 
+        # The client cannot assert this private routing flag for an explicitly
+        # pinned model; derive it from the parsed caller choice every time.
+        arguments["_auto_selected_model"] = model_name.lower() == "auto"
+
         # Handle auto mode at MCP boundary - resolve to specific model
         if model_name.lower() == "auto":
             # Get tool category to determine appropriate model
