@@ -54,11 +54,26 @@ AZURE_OPENAI_ALLOWED_MODELS=gpt-4o,gpt-4o-mini
 
 Aliases are matched case-insensitively.
 
-## 4. Quick Checklist
+## 4. Auto-mode failover and auth cooldown
+
+When a request's model was chosen by `auto` and the Azure call fails with an availability error
+(401/403/408/429/5xx, connection or timeout), the server retries once on an allowed Gemini model and
+reports the real model plus a `fallback_reason` such as `azure_http_401`. A request that names an
+Azure model never falls over; it reports Azure's own error.
+
+Auth-class failures (401/403, `AuthenticationError`, `PermissionDeniedError`) are also remembered
+in-process. For the next `PAL_AZURE_AUTH_COOLDOWN_SECONDS` (default `600`), auto-selected requests
+skip Azure entirely and go straight to Gemini with `fallback_reason: azure_auth_cooldown`. Any
+successful Azure call clears the record, so re-enabling a disabled subscription heals within one
+window without a restart. Transient failures are never cached. Set the variable to `0` to disable
+the cooldown.
+
+## 5. Quick Checklist
 
 - [ ] `AZURE_OPENAI_API_KEY` and `AZURE_OPENAI_ENDPOINT` are set
 - [ ] `conf/azure_models.json` (or the file referenced by `AZURE_MODELS_CONFIG_PATH`) lists every deployment with the desired metadata
 - [ ] Optional: `AZURE_OPENAI_ALLOWED_MODELS` to restrict usage
+- [ ] Optional: `PAL_AZURE_AUTH_COOLDOWN_SECONDS` if the default 600 s auth cooldown does not suit
 - [ ] Restart `./run-server.sh` and run `listmodels` to confirm the Azure entries appear with the expected metadata
 
 See also: [`docs/adding_providers.md`](adding_providers.md) for the full provider architecture and [README (Provider Configuration)](../README.md#provider-configuration) for quick-start environment snippets.

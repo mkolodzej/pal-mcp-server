@@ -209,6 +209,18 @@ def clear_model_restriction_env(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def reset_azure_auth_cooldown():
+    """Module-level negative cache must not leak between test files."""
+    from utils import model_failover
+
+    model_failover.clear_azure_auth_failure()
+    model_failover._parse_cooldown_env.cache_clear()
+    yield
+    model_failover.clear_azure_auth_failure()
+    model_failover._parse_cooldown_env.cache_clear()
+
+
+@pytest.fixture(autouse=True)
 def disable_force_env_override(monkeypatch):
     """Default tests to runtime environment visibility unless they explicitly opt in."""
 
