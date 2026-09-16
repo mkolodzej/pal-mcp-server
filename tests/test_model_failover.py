@@ -10,6 +10,7 @@ import server
 from providers.registry import ModelProviderRegistry
 from providers.shared import ProviderType
 from tools.models import ToolModelCategory
+from utils import model_failover
 from utils.model_failover import generate_with_auto_failover
 
 
@@ -17,6 +18,14 @@ class HTTPFailure(Exception):
     def __init__(self, status_code):
         super().__init__(f"HTTP {status_code}")
         self.status_code = status_code
+
+
+@pytest.fixture(autouse=True)
+def reset_azure_auth_cache(monkeypatch):
+    model_failover.clear_azure_auth_failure()
+    monkeypatch.delenv(model_failover.AZURE_AUTH_COOLDOWN_ENV, raising=False)
+    yield
+    model_failover.clear_azure_auth_failure()
 
 
 def providers():
@@ -226,3 +235,130 @@ async def test_workflow_expert_analysis_uses_gemini_and_updates_metadata():
     assert response["metadata"]["model_used"] == "gemini-test"
     assert response["metadata"]["provider_used"] == "google"
     assert response["metadata"]["fallback_reason"] == "azure_http_401"
+
+
+def _auto_call(tool, context, **kwargs):
+    return generate_with_auto_failover(tool, {"_auto_selected_model": True}, Mock(), context, prompt="hello", **kwargs)
+
+
+def _gemini_allowed(gemini):
+    return (
+        patch.object(ModelProviderRegistry, "get_provider", return_value=gemini),
+        patch.object(ModelProviderRegistry, "_get_allowed_models_for_provider", return_value=["gemini-test"]),
+    )
+
+
+def test_auth_failure_populates_cache_and_next_auto_request_skips_azure():
+    azure, gemini, context, tool = providers()
+    azure.generate_content.side_effect = HTTPFailure(401)
+    allowed, restricted = _gemini_allowed(gemini)
+    with allowed, restricted:
+        first = _auto_call(tool, context)
+        assert first.fallback_reason == "azure_http_401"
+        assert azure.generate_content.call_count == 1
+        assert model_failover.azure_auth_cooldown_active()
+
+        azure.generate_content.reset_mock()
+        second = _auto_call(tool, context)
+    azure.generate_content.assert_not_called()
+    assert second.model_name == "gemini-test"
+    assert second.fallback_reason == model_failover.AZURE_AUTH_COOLDOWN_REASON
+    assert gemini.generate_content.call_count == 2
+
+
+def test_rate_limit_does_not_populate_cache():
+    azure, gemini, context, tool = providers()
+    azure.generate_content.side_effect = HTTPFailure(429)
+    allowed, restricted = _gemini_allowed(gemini)
+    with allowed, restricted:
+        first = _auto_call(tool, context)
+        assert first.fallback_reason == "azure_http_429"
+        assert not model_failover.azure_auth_cooldown_active()
+        second = _auto_call(tool, context)
+    assert azure.generate_content.call_count == 2
+    assert second.fallback_reason == "azure_http_429"
+
+
+def test_cache_expires_after_ttl_and_azure_is_retried(monkeypatch):
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(model_failover, "_now", lambda: clock["now"])
+    azure, gemini, context, tool = providers()
+    azure.generate_content.side_effect = HTTPFailure(403)
+    allowed, restricted = _gemini_allowed(gemini)
+    with allowed, restricted:
+        _auto_call(tool, context)
+        assert azure.generate_content.call_count == 1
+
+        clock["now"] += model_failover.AZURE_AUTH_COOLDOWN_SECONDS - 1
+        _auto_call(tool, context)
+        assert azure.generate_content.call_count == 1  # Still cached.
+
+        clock["now"] += 2
+        result = _auto_call(tool, context)
+    assert azure.generate_content.call_count == 2  # TTL expired: Azure probed again.
+    assert result.fallback_reason == "azure_http_403"
+    assert model_failover.azure_auth_cooldown_active()  # Fresh failure re-armed the cache.
+
+
+def test_malformed_cooldown_env_warns_once_and_uses_default(monkeypatch, caplog):
+    monkeypatch.setenv(model_failover.AZURE_AUTH_COOLDOWN_ENV, "soon")
+    model_failover._parse_cooldown_env.cache_clear()
+    with caplog.at_level("WARNING", logger="utils.model_failover"):
+        assert model_failover._azure_auth_cooldown_seconds() == model_failover.AZURE_AUTH_COOLDOWN_SECONDS
+        assert model_failover._azure_auth_cooldown_seconds() == model_failover.AZURE_AUTH_COOLDOWN_SECONDS
+    assert sum(model_failover.AZURE_AUTH_COOLDOWN_ENV in r.message for r in caplog.records) == 1
+
+
+def test_auth_reason_classifier_is_anchored():
+    assert model_failover._is_azure_auth_failure_reason("azure_http_401")
+    assert model_failover._is_azure_auth_failure_reason("azure_http_403")
+    assert model_failover._is_azure_auth_failure_reason("azure_authenticationerror")
+    assert model_failover._is_azure_auth_failure_reason("azure_permissiondeniederror")
+    assert not model_failover._is_azure_auth_failure_reason("azure_http_429")
+    assert not model_failover._is_azure_auth_failure_reason("azure_http_404")
+    assert not model_failover._is_azure_auth_failure_reason("azure_ratelimiterror")
+    assert not model_failover._is_azure_auth_failure_reason(None)
+
+
+def test_cooldown_env_override_is_honored(monkeypatch):
+    clock = {"now": 50.0}
+    monkeypatch.setattr(model_failover, "_now", lambda: clock["now"])
+    monkeypatch.setenv(model_failover.AZURE_AUTH_COOLDOWN_ENV, "5")
+    model_failover.record_azure_auth_failure()
+    assert model_failover.azure_auth_cooldown_active()
+    clock["now"] += 6
+    assert not model_failover.azure_auth_cooldown_active()
+
+
+def test_successful_azure_call_clears_cache():
+    azure, gemini, context, tool = providers()
+    azure.generate_content.return_value = SimpleNamespace(content="azure answer", usage=None, metadata={})
+    model_failover.record_azure_auth_failure()
+    # Only the auto path consults the cache; an explicit Azure request still runs and its success heals the record.
+    result = generate_with_auto_failover(tool, {}, Mock(), context, prompt="hello")
+    assert result.model_name == "azure-test"
+    assert result.fallback_reason is None
+    assert not model_failover.azure_auth_cooldown_active()
+    gemini.generate_content.assert_not_called()
+
+
+def test_explicit_azure_ignores_populated_cache_and_raises_own_error():
+    azure, gemini, context, tool = providers()
+    azure.generate_content.side_effect = HTTPFailure(401)
+    model_failover.record_azure_auth_failure()
+    with patch.object(ModelProviderRegistry, "get_provider") as get_provider:
+        with pytest.raises(HTTPFailure):
+            generate_with_auto_failover(tool, {}, Mock(), context, prompt="hello")
+    azure.generate_content.assert_called_once()
+    get_provider.assert_not_called()
+    gemini.generate_content.assert_not_called()
+
+
+def test_cached_auth_failure_without_gemini_still_attempts_azure():
+    azure, _, context, tool = providers()
+    azure.generate_content.side_effect = HTTPFailure(401)
+    model_failover.record_azure_auth_failure()
+    with patch.object(ModelProviderRegistry, "get_provider", return_value=None):
+        with pytest.raises(HTTPFailure):
+            _auto_call(tool, context)
+    azure.generate_content.assert_called_once()
